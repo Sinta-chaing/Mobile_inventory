@@ -5,6 +5,7 @@ import 'dart:ui';
 import '../../routes/app_routes.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
+import '../../widgets/profile_menu_widget.dart';
 
 enum SupplierStatus { active, inactive, onHold }
 
@@ -189,13 +190,21 @@ class _SupplierScreenState extends State<SupplierScreen> {
     return name.isNotEmpty ? name[0].toUpperCase() : '?';
   }
 
+  BoxDecoration _outlinedCardDecoration({double radius = 12}) {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: AppTheme.outlineVariant, width: 1),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: Container(
-        decoration: const BoxDecoration(gradient: AppTheme.backgroundGradient),
-        child: SafeArea(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Container(
+          color: Colors.white,
           child: Column(
             children: [
               _buildHeader(),
@@ -295,6 +304,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
                   ],
                 ),
               ),
+              const ProfileMenuWidget(),
             ],
           ),
           const SizedBox(height: 16),
@@ -345,7 +355,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: AppTheme.glassCardDecoration,
+          decoration: _outlinedCardDecoration(radius: 14),
           child: Row(
             children: [
               Container(
@@ -395,7 +405,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
-            decoration: AppTheme.glassCardDecoration,
+            decoration: _outlinedCardDecoration(radius: 14),
             child: TextField(
               onChanged: (v) => setState(() => _searchQuery = v),
               style: GoogleFonts.dmSans(
@@ -467,7 +477,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
-            decoration: AppTheme.glassCardDecoration,
+            decoration: _outlinedCardDecoration(radius: 16),
             padding: const EdgeInsets.all(14),
             child: Row(
               children: [
@@ -530,7 +540,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
                               color: statusColor.withAlpha(20),
                               borderRadius: BorderRadius.circular(10.0),
                               border: Border.all(
-                                color: statusColor.withAlpha(80),
+                                color: AppTheme.outlineVariant,
                               ),
                             ),
                             child: Text(
@@ -902,6 +912,7 @@ class _SupplierDetailSheet extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: AppTheme.primary.withAlpha(10),
                           borderRadius: BorderRadius.circular(12.0),
+                          border: Border.all(color: AppTheme.outlineVariant),
                         ),
                         child: Column(
                           children: [
@@ -931,6 +942,7 @@ class _SupplierDetailSheet extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: AppTheme.success.withAlpha(10),
                           borderRadius: BorderRadius.circular(12.0),
+                          border: Border.all(color: AppTheme.outlineVariant),
                         ),
                         child: Column(
                           children: [
@@ -960,6 +972,7 @@ class _SupplierDetailSheet extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: const Color(0xFFFFC107).withAlpha(15),
                           borderRadius: BorderRadius.circular(12.0),
+                          border: Border.all(color: AppTheme.outlineVariant),
                         ),
                         child: Column(
                           children: [
@@ -992,6 +1005,7 @@ class _SupplierDetailSheet extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: AppTheme.surfaceVariant,
                       borderRadius: BorderRadius.circular(10.0),
+                      border: Border.all(color: AppTheme.outlineVariant),
                     ),
                     child: Text(
                       supplier.notes,

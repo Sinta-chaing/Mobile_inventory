@@ -5,27 +5,27 @@ import '../../../theme/app_theme.dart';
 import '../../purchase_screen/purchase_screen.dart';
 import '../../inventory_screen/inventory_screen.dart';
 
-class BITopItemsChartWidget extends StatefulWidget {
+class BIProfitableProductsWidget extends StatefulWidget {
   final List<Order> orders;
   final List<StockItem> stockItems;
 
-  const BITopItemsChartWidget({
+  const BIProfitableProductsWidget({
     super.key,
     required this.orders,
     required this.stockItems,
   });
 
   @override
-  State<BITopItemsChartWidget> createState() => _BITopItemsChartWidgetState();
+  State<BIProfitableProductsWidget> createState() =>
+      _BIProfitableProductsWidgetState();
 }
 
-class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
+class _BIProfitableProductsWidgetState extends State<BIProfitableProductsWidget>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
+  late List<_ProfitableProduct> _items;
   int _touchedIndex = -1;
-
-  late List<_TopItem> _items;
 
   static const List<Color> _barColors = [
     AppTheme.primary,
@@ -38,7 +38,7 @@ class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
   @override
   void initState() {
     super.initState();
-    _items = _buildTopItems();
+    _generateProfitableProducts();
 
     _controller = AnimationController(
       vsync: this,
@@ -54,64 +54,72 @@ class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
   }
 
   @override
-  void didUpdateWidget(covariant BITopItemsChartWidget oldWidget) {
+  void didUpdateWidget(covariant BIProfitableProductsWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.orders != widget.orders ||
         oldWidget.stockItems != widget.stockItems) {
       setState(() {
-        _items = _buildTopItems();
+        _generateProfitableProducts();
       });
     }
   }
 
-  List<_TopItem> _buildTopItems() {
-    final itemMap = <String, Map<String, dynamic>>{};
+  void _generateProfitableProducts() {
+    final productProfits = <String, Map<String, dynamic>>{};
 
+    // Calculate profit for each product from paid orders
     for (final order in widget.orders) {
       if (order.status != OrderStatus.paid) continue;
       for (final item in order.items) {
+        final stockItem = widget.stockItems
+            .where((s) => s.name.toLowerCase() == item.itemName.toLowerCase())
+            .cast<StockItem?>()
+            .firstWhere((_) => true, orElse: () => null);
+        final costPrice = stockItem?.unitCost ?? 0.0;
         final subtotal = item.quantity * item.unitPrice;
         final discountAmount = (subtotal * item.discount) / 100;
         final revenue = subtotal - discountAmount;
+        final totalCost = item.quantity * costPrice;
+        final profit = revenue - totalCost;
 
-        if (!itemMap.containsKey(item.itemName)) {
-          final stockItem = widget.stockItems
-              .where((s) => s.name.toLowerCase() == item.itemName.toLowerCase())
-              .cast<StockItem?>()
-              .firstWhere((_) => true, orElse: () => null);
-          itemMap[item.itemName] = {
-            'sku': stockItem?.sku ?? '-',
+        if (!productProfits.containsKey(item.itemName)) {
+          productProfits[item.itemName] = {
+            'profit': 0.0,
             'revenue': 0.0,
             'units': 0,
           };
         }
-
-        itemMap[item.itemName]!['revenue'] += revenue;
-        itemMap[item.itemName]!['units'] += item.quantity;
+        productProfits[item.itemName]!['profit'] += profit;
+        productProfits[item.itemName]!['revenue'] += revenue;
+        productProfits[item.itemName]!['units'] += item.quantity;
       }
     }
 
-    final items = itemMap.entries
-        .map(
-          (e) => _TopItem(
-            name: e.key,
-            sku: e.value['sku'] as String,
-            revenue: e.value['revenue'] as double,
-            units: e.value['units'] as int,
-          ),
-        )
-        .toList();
+    // Convert to list and sort by profit descending
+    final products = productProfits.entries.map((e) {
+      final profit = e.value['profit'] as double;
+      final revenue = e.value['revenue'] as double;
+      final units = e.value['units'] as int;
+      final margin = revenue > 0 ? profit / revenue : 0.0;
 
-    items.sort((a, b) => b.revenue.compareTo(a.revenue));
-    return items.take(5).toList();
+      return _ProfitableProduct(
+        name: e.key,
+        profit: profit,
+        units: units,
+        margin: margin,
+      );
+    }).toList();
+
+    products.sort((a, b) => b.profit.compareTo(a.profit));
+    _items = products.take(5).toList();
   }
 
   double get _maxY {
     if (_items.isEmpty) return 1000;
-    final maxRevenue = _items
-        .map((e) => e.revenue)
+    final maxProfit = _items
+        .map((e) => e.profit)
         .reduce((a, b) => a > b ? a : b);
-    return ((maxRevenue * 1.2) / 1000).ceil() * 1000;
+    return ((maxProfit * 1.2) / 1000).ceil() * 1000;
   }
 
   double get _yInterval => (_maxY / 4).clamp(250, 5000);
@@ -141,7 +149,7 @@ class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Top 5 Items by Revenue',
+            'Top 5 Profitable Products',
             style: GoogleFonts.ibmPlexSans(
               fontSize: 14,
               fontWeight: FontWeight.w700,
@@ -171,7 +179,7 @@ class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
                         tooltipRoundedRadius: 8,
                         getTooltipItem: (group, groupIndex, rod, rodIndex) {
                           return BarTooltipItem(
-                            '${_items[groupIndex].name}\n\$${rod.toY.toStringAsFixed(0)}',
+                            '${_items[groupIndex].name}\n\$${rod.toY.toStringAsFixed(0)}\n${(_items[groupIndex].margin * 100).toStringAsFixed(0)}% margin',
                             GoogleFonts.ibmPlexMono(
                               fontSize: 11,
                               color: Colors.white,
@@ -232,7 +240,7 @@ class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
                             return Padding(
                               padding: const EdgeInsets.only(top: 6),
                               child: Text(
-                                parts.last,
+                                parts.first,
                                 style: GoogleFonts.ibmPlexSans(
                                   fontSize: 9,
                                   color: AppTheme.outline,
@@ -260,7 +268,7 @@ class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
                         x: e.key,
                         barRods: [
                           BarChartRodData(
-                            toY: e.value.revenue * _animation.value,
+                            toY: e.value.profit * _animation.value,
                             color: isTouched
                                 ? _barColors[e.key].withAlpha(179)
                                 : _barColors[e.key],
@@ -283,76 +291,61 @@ class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
             },
           ),
           const SizedBox(height: 16),
-          // Item legend list
+          // Legend
           if (_items.isEmpty)
             Text(
-              'No paid invoice data for top items.',
+              'No paid invoice data for profitable products.',
               style: GoogleFonts.ibmPlexSans(
                 fontSize: 12,
                 color: AppTheme.outline,
               ),
             ),
-          ...List.generate(_items.length, (i) {
-            final item = _items[i];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            children: _items.asMap().entries.map((e) {
+              return Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 10,
-                    height: 10,
+                    width: 8,
+                    height: 8,
                     decoration: BoxDecoration(
-                      color: _barColors[i],
-                      borderRadius: BorderRadius.circular(3),
+                      color: _barColors[e.key],
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
+                  const SizedBox(width: 6),
+                  Flexible(
                     child: Text(
-                      item.name,
+                      '${e.value.name} (\$${e.value.profit.toStringAsFixed(0)})',
                       style: GoogleFonts.ibmPlexSans(
-                        fontSize: 12,
+                        fontSize: 11,
                         color: const Color(0xFF1A1C1B),
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  Text(
-                    '${item.units} units',
-                    style: GoogleFonts.ibmPlexSans(
-                      fontSize: 11,
-                      color: AppTheme.outline,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    '\$${item.revenue.toStringAsFixed(0)}',
-                    style: GoogleFonts.ibmPlexMono(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: _barColors[i],
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
                 ],
-              ),
-            );
-          }),
+              );
+            }).toList(),
+          ),
         ],
       ),
     );
   }
 }
 
-class _TopItem {
+class _ProfitableProduct {
   final String name;
-  final String sku;
-  final double revenue;
+  final double profit;
   final int units;
-  _TopItem({
+  final double margin;
+
+  _ProfitableProduct({
     required this.name,
-    required this.sku,
-    required this.revenue,
+    required this.profit,
     required this.units,
+    required this.margin,
   });
 }

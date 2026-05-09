@@ -47,7 +47,14 @@ class AppNavigation extends StatelessWidget {
             ],
           ),
         ),
-        // Separated BI icon container with matching height and label
+        // Divider to isolate BI
+        Container(
+          width: 1,
+          height: 24,
+          color: Colors.black,
+          margin: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+        // BI icon container with matching style
         GestureDetector(
           onTap: () => onDestinationSelected(4),
           child: Container(
@@ -60,21 +67,18 @@ class AppNavigation extends StatelessWidget {
                   width: 64,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: currentIndex == 4 ? AppTheme.primary : Colors.white,
+                    color: currentIndex == 4
+                        ? AppTheme.primaryContainer
+                        : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withAlpha(13),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
                   ),
                   child: Icon(
                     currentIndex == 4
                         ? Icons.bar_chart_rounded
                         : Icons.bar_chart_outlined,
-                    color: currentIndex == 4 ? Colors.white : AppTheme.primary,
+                    color: currentIndex == 4
+                        ? AppTheme.primary
+                        : AppTheme.outline,
                     size: 24,
                   ),
                 ),

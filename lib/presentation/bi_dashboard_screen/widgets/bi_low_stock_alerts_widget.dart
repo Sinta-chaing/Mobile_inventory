@@ -87,8 +87,7 @@ class _BILowStockAlertsWidgetState extends State<BILowStockAlertsWidget> {
       'unitCost': 58.00,
       'supplierName': 'Meridian Hardware Dist.',
       'status': 'lowStock',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1560833411-6889bf875858',
+      'imageUrl': 'https://images.unsplash.com/photo-1560833411-6889bf875858',
       'semanticLabel': 'Red and black shop vacuum cleaner in warehouse setting',
     },
     {
@@ -249,6 +248,11 @@ class _AlertItem {
 
   bool get isOutOfStock => status == 'outOfStock';
 
+  Color get accentColor => isOutOfStock ? AppTheme.stockOut : AppTheme.stockLow;
+
+  Color get accentContainerColor =>
+      isOutOfStock ? AppTheme.stockOutContainer : AppTheme.stockLowContainer;
+
   double get reorderCost => reorderQty * unitCost;
 }
 
@@ -315,196 +319,191 @@ class _AnimatedAlertCardState extends State<_AnimatedAlertCard>
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
           decoration: BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border(
-              left: BorderSide(
-                color: alert.isOutOfStock ? AppTheme.error : AppTheme.warning,
-                width: 3,
-              ),
-            ),
+            color: Colors.white.withAlpha(240),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.withAlpha(40), width: 1.5),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withAlpha(10),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Image
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: CustomImageWidget(
-                  imageUrl: alert.imageUrl,
-                  width: 48,
-                  height: 48,
-                  fit: BoxFit.cover,
-                  semanticLabel: alert.semanticLabel,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Image
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CustomImageWidget(
+                    imageUrl: alert.imageUrl,
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                    semanticLabel: alert.semanticLabel,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              // Content
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            alert.name,
-                            style: GoogleFonts.ibmPlexSans(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF1A1C1B),
-                              height: 1.3,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: alert.isOutOfStock
-                                ? AppTheme.errorContainer
-                                : AppTheme.warningContainer,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            alert.isOutOfStock ? 'Out of Stock' : 'Low Stock',
-                            style: GoogleFonts.ibmPlexSans(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: alert.isOutOfStock
-                                  ? AppTheme.error
-                                  : AppTheme.warning,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${alert.sku} · ${alert.supplierName}',
-                      style: GoogleFonts.ibmPlexSans(
-                        fontSize: 11,
-                        color: AppTheme.outline,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    // Stock progress bar
-                    Row(
-                      children: [
-                        Text(
-                          'Stock: ',
-                          style: GoogleFonts.ibmPlexSans(
-                            fontSize: 11,
-                            color: AppTheme.outline,
-                          ),
-                        ),
-                        Text(
-                          '${alert.quantity}',
-                          style: GoogleFonts.ibmPlexMono(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: alert.isOutOfStock
-                                ? AppTheme.error
-                                : AppTheme.warning,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                        Text(
-                          ' / ${alert.reorderLevel} reorder pt.',
-                          style: GoogleFonts.ibmPlexSans(
-                            fontSize: 11,
-                            color: AppTheme.outline,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: stockFraction.clamp(0.0, 1.0),
-                        backgroundColor: AppTheme.outlineVariant,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          alert.isOutOfStock
-                              ? AppTheme.error
-                              : AppTheme.warning,
-                        ),
-                        minHeight: 5,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Suggest Reorder: ${alert.reorderQty} units',
+                const SizedBox(width: 12),
+                // Content
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              alert.name,
                               style: GoogleFonts.ibmPlexSans(
-                                fontSize: 11,
-                                color: AppTheme.outline,
-                              ),
-                            ),
-                            Text(
-                              'Est. Cost: \$${alert.reorderCost.toStringAsFixed(2)}',
-                              style: GoogleFonts.ibmPlexMono(
-                                fontSize: 11,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: AppTheme.primary,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
-                                ],
+                                color: const Color(0xFF1A1C1B),
+                                height: 1.3,
                               ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ],
-                        ),
-                        SizedBox(
-                          height: 30,
-                          child: ElevatedButton(
-                            onPressed: widget.onReorder,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: alert.isOutOfStock
-                                  ? AppTheme.error
-                                  : AppTheme.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: alert.accentContainerColor.withAlpha(40),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: alert.accentColor.withAlpha(80),
+                                width: 1,
                               ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              elevation: 0,
                             ),
                             child: Text(
-                              'Reorder',
+                              alert.isOutOfStock ? 'Out of Stock' : 'Low Stock',
                               style: GoogleFonts.ibmPlexSans(
-                                fontSize: 12,
+                                fontSize: 10,
                                 fontWeight: FontWeight.w700,
+                                color: alert.accentColor,
                               ),
                             ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${alert.sku} · ${alert.supplierName}',
+                        style: GoogleFonts.ibmPlexSans(
+                          fontSize: 11,
+                          color: AppTheme.outline,
                         ),
-                      ],
-                    ),
-                  ],
+                      ),
+                      const SizedBox(height: 8),
+                      // Stock progress bar
+                      Row(
+                        children: [
+                          Text(
+                            'Stock: ',
+                            style: GoogleFonts.ibmPlexSans(
+                              fontSize: 11,
+                              color: AppTheme.outline,
+                            ),
+                          ),
+                          Text(
+                            '${alert.quantity}',
+                            style: GoogleFonts.ibmPlexMono(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey[800],
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            ' / ${alert.reorderLevel} reorder pt.',
+                            style: GoogleFonts.ibmPlexSans(
+                              fontSize: 11,
+                              color: AppTheme.outline,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: stockFraction.clamp(0.0, 1.0),
+                          backgroundColor: alert.accentContainerColor.withAlpha(
+                            60,
+                          ),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            alert.accentColor,
+                          ),
+                          minHeight: 6,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Suggest Reorder: ${alert.reorderQty} units',
+                                style: GoogleFonts.ibmPlexSans(
+                                  fontSize: 11,
+                                  color: AppTheme.outline,
+                                ),
+                              ),
+                              Text(
+                                'Est. Cost: \$${alert.reorderCost.toStringAsFixed(2)}',
+                                style: GoogleFonts.ibmPlexMono(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.secondary,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(
+                            height: 30,
+                            child: ElevatedButton(
+                              onPressed: widget.onReorder,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.secondary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                elevation: 0,
+                              ),
+                              child: Text(
+                                'Reorder',
+                                style: GoogleFonts.ibmPlexSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

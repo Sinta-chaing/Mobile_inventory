@@ -2,9 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../theme/app_theme.dart';
+import '../../purchase_screen/purchase_screen.dart';
+import '../../inventory_screen/inventory_screen.dart';
 
 class BIRevenueChartWidget extends StatefulWidget {
-  const BIRevenueChartWidget({super.key});
+  final List<Order> orders;
+  final List<StockItem> stockItems;
+
+  const BIRevenueChartWidget({
+    super.key,
+    required this.orders,
+    required this.stockItems,
+  });
 
   @override
   State<BIRevenueChartWidget> createState() => _BIRevenueChartWidgetState();
@@ -14,33 +23,13 @@ class _BIRevenueChartWidgetState extends State<BIRevenueChartWidget>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
-  final int _touchedIndex = -1;
-
-  // 7-day revenue data (realistic variance — not a smooth upward curve)
-  static final List<Map<String, dynamic>> _revenueDataMaps = [
-    {'day': 'Apr 21', 'revenue': 5820.0, 'cogs': 3490.0},
-    {'day': 'Apr 22', 'revenue': 7340.0, 'cogs': 4400.0},
-    {'day': 'Apr 23', 'revenue': 4120.0, 'cogs': 2470.0},
-    {'day': 'Apr 24', 'revenue': 8950.0, 'cogs': 5370.0},
-    {'day': 'Apr 25', 'revenue': 6780.0, 'cogs': 4070.0},
-    {'day': 'Apr 26', 'revenue': 9210.0, 'cogs': 5530.0},
-    {'day': 'Apr 27', 'revenue': 6100.0, 'cogs': 3660.0},
-  ];
 
   late List<_RevenuePoint> _points;
 
   @override
   void initState() {
     super.initState();
-    _points = _revenueDataMaps
-        .map(
-          (m) => _RevenuePoint(
-            day: m['day'] as String,
-            revenue: m['revenue'] as double,
-            cogs: m['cogs'] as double,
-          ),
-        )
-        .toList();
+    _points = _buildRevenuePoints();
 
     _controller = AnimationController(
       vsync: this,
@@ -52,6 +41,98 @@ class _BIRevenueChartWidgetState extends State<BIRevenueChartWidget>
     );
     _controller.forward();
   }
+
+  @override
+  void didUpdateWidget(covariant BIRevenueChartWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.orders != widget.orders ||
+        oldWidget.stockItems != widget.stockItems) {
+      setState(() {
+        _points = _buildRevenuePoints();
+      });
+    }
+  }
+
+  List<_RevenuePoint> _buildRevenuePoints() {
+    final today = DateTime.now();
+    final end = DateTime(today.year, today.month, today.day);
+    final start = end.subtract(const Duration(days: 6));
+
+    final points = <_RevenuePoint>[];
+    for (int i = 0; i < 7; i++) {
+      final date = start.add(Duration(days: i));
+      points.add(_RevenuePoint(day: _formatDay(date), revenue: 0.0, cogs: 0.0));
+    }
+
+    for (final order in widget.orders) {
+      if (order.status != OrderStatus.paid || order.paidAt == null) {
+        continue;
+      }
+
+      final paidDate = DateTime(
+        order.paidAt!.year,
+        order.paidAt!.month,
+        order.paidAt!.day,
+      );
+      if (paidDate.isBefore(start) || paidDate.isAfter(end)) {
+        continue;
+      }
+
+      final dayIndex = paidDate.difference(start).inDays;
+      if (dayIndex < 0 || dayIndex > 6) continue;
+
+      for (final item in order.items) {
+        final subtotal = item.quantity * item.unitPrice;
+        final discountAmount = (subtotal * item.discount) / 100;
+        final lineRevenue = subtotal - discountAmount;
+
+        final stockItem = widget.stockItems
+            .where((s) => s.name.toLowerCase() == item.itemName.toLowerCase())
+            .cast<StockItem?>()
+            .firstWhere((_) => true, orElse: () => null);
+        final lineCogs = item.quantity * (stockItem?.unitCost ?? 0.0);
+
+        points[dayIndex] = _RevenuePoint(
+          day: points[dayIndex].day,
+          revenue: points[dayIndex].revenue + lineRevenue,
+          cogs: points[dayIndex].cogs + lineCogs,
+        );
+      }
+    }
+
+    return points;
+  }
+
+  String _formatDay(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}';
+  }
+
+  double get _maxY {
+    final maxValue = _points.fold<double>(
+      0.0,
+      (max, p) => (p.revenue > p.cogs ? p.revenue : p.cogs) > max
+          ? (p.revenue > p.cogs ? p.revenue : p.cogs)
+          : max,
+    );
+    if (maxValue <= 0) return 1000;
+    return ((maxValue * 1.2) / 1000).ceil() * 1000;
+  }
+
+  double get _yInterval => (_maxY / 4).clamp(250, 5000);
 
   @override
   void dispose() {
@@ -95,7 +176,7 @@ class _BIRevenueChartWidgetState extends State<BIRevenueChartWidget>
                     ),
                   ),
                   Text(
-                    'Apr 21 – Apr 27, 2026',
+                    '${_points.first.day} - ${_points.last.day}, ${DateTime.now().year}',
                     style: GoogleFonts.ibmPlexSans(
                       fontSize: 11,
                       color: AppTheme.outline,
@@ -121,7 +202,7 @@ class _BIRevenueChartWidgetState extends State<BIRevenueChartWidget>
                     gridData: FlGridData(
                       show: true,
                       drawVerticalLine: false,
-                      horizontalInterval: 3000,
+                      horizontalInterval: _yInterval,
                       getDrawingHorizontalLine: (_) => FlLine(
                         color: AppTheme.outlineVariant,
                         strokeWidth: 1,
@@ -134,7 +215,7 @@ class _BIRevenueChartWidgetState extends State<BIRevenueChartWidget>
                         sideTitles: SideTitles(
                           showTitles: true,
                           reservedSize: 44,
-                          interval: 3000,
+                          interval: _yInterval,
                           getTitlesWidget: (value, meta) {
                             if (value == 0) return const SizedBox.shrink();
                             return Text(
@@ -183,7 +264,7 @@ class _BIRevenueChartWidgetState extends State<BIRevenueChartWidget>
                     minX: 0,
                     maxX: (_points.length - 1).toDouble(),
                     minY: 0,
-                    maxY: 12000,
+                    maxY: _maxY,
                     lineTouchData: LineTouchData(
                       touchTooltipData: LineTouchTooltipData(
                         tooltipBgColor: const Color(0xFF2E3130),

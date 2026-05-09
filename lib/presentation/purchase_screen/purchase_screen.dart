@@ -1,56 +1,77 @@
 import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 
 import '../../routes/app_routes.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/invoice_pdf_generator.dart';
 import '../../widgets/app_navigation.dart';
+import '../../widgets/profile_menu_widget.dart';
+import '../inventory_screen/inventory_screen.dart';
 
-enum PurchaseStatus { pending, received, cancelled }
+enum PaymentMethod { cash, khqr }
 
-class PurchaseOrder {
+enum OrderStatus { pending, paid }
+
+class Customer {
   final String id;
-  final String poNumber;
-  final String supplierName;
-  final String supplierContact;
-  final DateTime orderDate;
-  DateTime? expectedDate;
-  PurchaseStatus status;
-  final List<PurchaseLineItem> items;
-  String notes;
+  final String name;
+  final String phone;
 
-  PurchaseOrder({
-    required this.id,
-    required this.poNumber,
-    required this.supplierName,
-    required this.supplierContact,
-    required this.orderDate,
-    this.expectedDate,
-    required this.status,
-    required this.items,
-    this.notes = '',
-  });
-
-  double get totalAmount => items.fold(0, (sum, item) => sum + item.totalPrice);
-
-  int get totalItems => items.fold(0, (sum, item) => sum + item.quantity);
+  Customer({required this.id, required this.name, required this.phone});
 }
 
-class PurchaseLineItem {
-  final String itemName;
-  final String sku;
-  int quantity;
-  double unitCost;
+class Product {
+  final String id;
+  final String name;
+  final double sellingPrice;
 
-  PurchaseLineItem({
+  Product({required this.id, required this.name, required this.sellingPrice});
+}
+
+class Order {
+  final String orderId;
+  final DateTime createdDate;
+  final String customerName;
+  final String customerPhone;
+  final PaymentMethod paymentMethod;
+  final double total;
+  OrderStatus status;
+  DateTime? paidAt;
+  final String createdBy;
+  final List<OrderItem> items;
+
+  Order({
+    required this.orderId,
+    required this.createdDate,
+    required this.customerName,
+    required this.customerPhone,
+    required this.paymentMethod,
+    required this.total,
+    required this.status,
+    this.paidAt,
+    required this.createdBy,
+    required this.items,
+  });
+}
+
+class OrderItem {
+  final String itemName;
+  final int quantity;
+  final double unitPrice;
+  final double discount; // Discount percentage
+
+  OrderItem({
     required this.itemName,
-    required this.sku,
     required this.quantity,
-    required this.unitCost,
+    required this.unitPrice,
+    this.discount = 0.0,
   });
 
-  double get totalPrice => quantity * unitCost;
+  double get subtotal => quantity * unitPrice;
+  double get discountAmount => (subtotal * discount) / 100;
+  double get lineTotal => subtotal - discountAmount;
 }
 
 class PurchaseScreen extends StatefulWidget {
@@ -60,120 +81,107 @@ class PurchaseScreen extends StatefulWidget {
   State<PurchaseScreen> createState() => _PurchaseScreenState();
 }
 
-class _PurchaseScreenState extends State<PurchaseScreen>
-    with SingleTickerProviderStateMixin {
+class _PurchaseScreenState extends State<PurchaseScreen> {
   int _selectedNavIndex = 1;
   String _searchQuery = '';
-  PurchaseStatus? _filterStatus;
-  late TabController _tabController;
 
-  final List<PurchaseOrder> _orders = [
-    PurchaseOrder(
-      id: 'PO001',
-      poNumber: 'PO-2024-001',
-      supplierName: 'ProTools Supply Co.',
-      supplierContact: 'sales@protools.com',
-      orderDate: DateTime.now().subtract(const Duration(days: 5)),
-      expectedDate: DateTime.now().add(const Duration(days: 3)),
-      status: PurchaseStatus.pending,
+  // Mock customer data
+  final List<Customer> _customers = [
+    Customer(id: 'C001', name: 'John Doe', phone: '+855 12 345 678'),
+    Customer(id: 'C002', name: 'Jane Smith', phone: '+855 98 765 432'),
+    Customer(id: 'C003', name: 'Mike Johnson', phone: '+855 77 123 456'),
+    Customer(id: 'C004', name: 'Sarah Williams', phone: '+855 55 987 654'),
+    Customer(id: 'C005', name: 'David Brown', phone: '+855 66 432 109'),
+  ];
+
+  // Product data - synchronized with inventory selling prices
+  final List<Product> _products = [
+    Product(
+      id: 'P001',
+      name: 'DeWalt 20V Cordless Drill',
+      sellingPrice: 149.99,
+    ),
+    Product(
+      id: 'P002',
+      name: 'Stanley FatMax Tape Measure 25ft',
+      sellingPrice: 24.99,
+    ),
+    Product(id: 'P003', name: 'Makita Angle Grinder 4.5"', sellingPrice: 99.95),
+    Product(id: 'P004', name: 'Bosch 18V Circular Saw', sellingPrice: 199.99),
+    Product(id: 'P005', name: '3M Safety Glasses', sellingPrice: 2.50),
+    Product(id: 'P006', name: 'Work Gloves', sellingPrice: 8.99),
+  ];
+
+  final List<Order> _orders = [
+    Order(
+      orderId: 'ORD-2024-001',
+      createdDate: DateTime.now().subtract(const Duration(days: 5)),
+      customerName: 'John Doe',
+      customerPhone: '+855 12 345 678',
+      paymentMethod: PaymentMethod.khqr,
+      total: 2999.80,
+      status: OrderStatus.paid,
+      paidAt: DateTime.now().subtract(const Duration(days: 4)),
+      createdBy: 'Admin User',
       items: [
-        PurchaseLineItem(
+        OrderItem(
           itemName: 'DeWalt 20V Cordless Drill',
-          sku: 'DW-DCD771C2',
           quantity: 20,
-          unitCost: 89.50,
-        ),
-        PurchaseLineItem(
-          itemName: 'Milwaukee M18 Impact Driver',
-          sku: 'MW-2853-20',
-          quantity: 10,
-          unitCost: 135.00,
+          unitPrice: 149.99,
         ),
       ],
-      notes: 'Urgent restock needed for Q4',
     ),
-    PurchaseOrder(
-      id: 'PO002',
-      poNumber: 'PO-2024-002',
-      supplierName: 'Meridian Hardware Dist.',
-      supplierContact: 'orders@meridian.com',
-      orderDate: DateTime.now().subtract(const Duration(days: 12)),
-      expectedDate: DateTime.now().subtract(const Duration(days: 2)),
-      status: PurchaseStatus.received,
+    Order(
+      orderId: 'ORD-2024-002',
+      createdDate: DateTime.now().subtract(const Duration(days: 2)),
+      customerName: 'Jane Smith',
+      customerPhone: '+855 98 765 432',
+      paymentMethod: PaymentMethod.cash,
+      total: 799.70,
+      status: OrderStatus.pending,
+      paidAt: null,
+      createdBy: 'Staff Member',
       items: [
-        PurchaseLineItem(
-          itemName: 'Stanley FatMax Tape Measure',
-          sku: 'ST-FMHT33865',
+        OrderItem(
+          itemName: 'Stanley FatMax Tape Measure 25ft',
           quantity: 30,
-          unitCost: 12.40,
+          unitPrice: 24.99,
         ),
-        PurchaseLineItem(
-          itemName: 'Irwin 10" Adjustable Wrench',
-          sku: 'IW-2078609',
-          quantity: 25,
-          unitCost: 8.75,
-        ),
-        PurchaseLineItem(
-          itemName: 'Klein Tools Level 24"',
-          sku: 'KL-935-24',
-          quantity: 15,
-          unitCost: 22.00,
-        ),
-      ],
-      notes: '',
-    ),
-    PurchaseOrder(
-      id: 'PO003',
-      poNumber: 'PO-2024-003',
-      supplierName: 'SafeGuard Industrial',
-      supplierContact: 'supply@safeguard.com',
-      orderDate: DateTime.now().subtract(const Duration(days: 8)),
-      expectedDate: DateTime.now().add(const Duration(days: 7)),
-      status: PurchaseStatus.pending,
-      items: [
-        PurchaseLineItem(
-          itemName: '3M Safety Glasses Clear Lens',
-          sku: '3M-11326-00000',
-          quantity: 100,
-          unitCost: 2.10,
-        ),
-        PurchaseLineItem(
-          itemName: 'Gorilla Heavy Duty Work Gloves',
-          sku: 'GR-71594-M',
-          quantity: 50,
-          unitCost: 7.20,
-        ),
-      ],
-      notes: 'Safety equipment restock',
-    ),
-    PurchaseOrder(
-      id: 'PO004',
-      poNumber: 'PO-2024-004',
-      supplierName: 'ProTools Supply Co.',
-      supplierContact: 'sales@protools.com',
-      orderDate: DateTime.now().subtract(const Duration(days: 20)),
-      expectedDate: DateTime.now().subtract(const Duration(days: 10)),
-      status: PurchaseStatus.cancelled,
-      items: [
-        PurchaseLineItem(
-          itemName: 'Bosch 18V Circular Saw',
-          sku: 'BS-CCS180B',
+        OrderItem(
+          itemName: 'Makita Angle Grinder 4.5"',
           quantity: 5,
-          unitCost: 112.00,
+          unitPrice: 99.95,
         ),
       ],
-      notes: 'Cancelled due to price dispute',
+    ),
+    Order(
+      orderId: 'ORD-2024-003',
+      createdDate: DateTime.now().subtract(const Duration(hours: 3)),
+      customerName: 'Mike Johnson',
+      customerPhone: '+855 77 123 456',
+      paymentMethod: PaymentMethod.khqr,
+      total: 699.50,
+      status: OrderStatus.paid,
+      paidAt: DateTime.now().subtract(const Duration(hours: 2)),
+      createdBy: 'Admin User',
+      items: [
+        OrderItem(
+          itemName: '3M Safety Glasses',
+          quantity: 100,
+          unitPrice: 2.50,
+        ),
+        OrderItem(itemName: 'Work Gloves', quantity: 50, unitPrice: 8.99),
+      ],
     ),
   ];
 
-  List<PurchaseOrder> get _filteredOrders {
+  List<Order> get _filteredOrders {
     return _orders.where((o) {
       final matchSearch =
           _searchQuery.isEmpty ||
-          o.poNumber.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          o.supplierName.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchStatus = _filterStatus == null || o.status == _filterStatus;
-      return matchSearch && matchStatus;
+          o.orderId.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          o.customerName.toLowerCase().contains(_searchQuery.toLowerCase());
+      return matchSearch;
     }).toList();
   }
 
@@ -193,51 +201,6 @@ class _PurchaseScreenState extends State<PurchaseScreen>
       case 4:
         Navigator.pushReplacementNamed(context, AppRoutes.biDashboardScreen);
         break;
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  Color _statusColor(PurchaseStatus s) {
-    switch (s) {
-      case PurchaseStatus.pending:
-        return AppTheme.warning;
-      case PurchaseStatus.received:
-        return AppTheme.success;
-      case PurchaseStatus.cancelled:
-        return AppTheme.error;
-    }
-  }
-
-  String _statusLabel(PurchaseStatus s) {
-    switch (s) {
-      case PurchaseStatus.pending:
-        return 'Pending';
-      case PurchaseStatus.received:
-        return 'Received';
-      case PurchaseStatus.cancelled:
-        return 'Cancelled';
-    }
-  }
-
-  IconData _statusIcon(PurchaseStatus s) {
-    switch (s) {
-      case PurchaseStatus.pending:
-        return Icons.schedule_rounded;
-      case PurchaseStatus.received:
-        return Icons.check_circle_rounded;
-      case PurchaseStatus.cancelled:
-        return Icons.cancel_rounded;
     }
   }
 
@@ -287,10 +250,14 @@ class _PurchaseScreenState extends State<PurchaseScreen>
   }
 
   Widget _buildHeader() {
-    final pending = _orders
-        .where((o) => o.status == PurchaseStatus.pending)
+    final totalOrders = _orders.length;
+    final paidOrders = _orders
+        .where((o) => o.status == OrderStatus.paid)
         .length;
-    final totalValue = _orders.fold<double>(0, (s, o) => s + o.totalAmount);
+    final pendingOrders = _orders
+        .where((o) => o.status == OrderStatus.pending)
+        .length;
+    final totalRevenue = _orders.fold<double>(0, (sum, o) => sum + o.total);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
@@ -313,7 +280,7 @@ class _PurchaseScreenState extends State<PurchaseScreen>
                   ],
                 ),
                 child: const Icon(
-                  Icons.shopping_cart_rounded,
+                  Icons.receipt_long_rounded,
                   color: Colors.white,
                   size: 22,
                 ),
@@ -324,7 +291,7 @@ class _PurchaseScreenState extends State<PurchaseScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Purchase Orders',
+                      'Invoices',
                       style: GoogleFonts.dmSans(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
@@ -332,7 +299,7 @@ class _PurchaseScreenState extends State<PurchaseScreen>
                       ),
                     ),
                     Text(
-                      'Manage supplier purchases',
+                      'Create & manage orders',
                       style: GoogleFonts.dmSans(
                         fontSize: 12,
                         color: AppTheme.outline,
@@ -341,6 +308,7 @@ class _PurchaseScreenState extends State<PurchaseScreen>
                   ],
                 ),
               ),
+              const ProfileMenuWidget(),
             ],
           ),
           const SizedBox(height: 16),
@@ -349,7 +317,7 @@ class _PurchaseScreenState extends State<PurchaseScreen>
               Expanded(
                 child: _buildStatCard(
                   'Total Orders',
-                  '${_orders.length}',
+                  '$totalOrders',
                   Icons.receipt_long_rounded,
                   AppTheme.primary,
                 ),
@@ -357,19 +325,19 @@ class _PurchaseScreenState extends State<PurchaseScreen>
               const SizedBox(width: 10),
               Expanded(
                 child: _buildStatCard(
-                  'Pending',
-                  '$pending',
-                  Icons.schedule_rounded,
-                  AppTheme.warning,
+                  'Paid',
+                  '$paidOrders',
+                  Icons.check_circle_rounded,
+                  AppTheme.success,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _buildStatCard(
-                  'Total Value',
-                  '\$${(totalValue / 1000).toStringAsFixed(1)}k',
-                  Icons.attach_money_rounded,
-                  AppTheme.success,
+                  'Pending',
+                  '$pendingOrders',
+                  Icons.hourglass_bottom_rounded,
+                  AppTheme.warning,
                 ),
               ),
             ],
@@ -387,7 +355,11 @@ class _PurchaseScreenState extends State<PurchaseScreen>
   ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: AppTheme.simpleCardDecoration,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.outlineVariant),
+      ),
       child: Row(
         children: [
           Container(
@@ -431,7 +403,11 @@ class _PurchaseScreenState extends State<PurchaseScreen>
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
       child: Container(
-        decoration: AppTheme.simpleCardDecoration,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.outlineVariant),
+        ),
         child: TextField(
           onChanged: (v) => setState(() => _searchQuery = v),
           style: GoogleFonts.dmSans(
@@ -439,7 +415,7 @@ class _PurchaseScreenState extends State<PurchaseScreen>
             color: const Color(0xFF1A1C2B),
           ),
           decoration: InputDecoration(
-            hintText: 'Search by PO number or supplier…',
+            hintText: 'Search by order # or customer…',
             hintStyle: GoogleFonts.dmSans(
               fontSize: 14,
               color: AppTheme.outline,
@@ -471,13 +447,13 @@ class _PurchaseScreenState extends State<PurchaseScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.shopping_cart_outlined,
+              Icons.receipt_long_outlined,
               size: 56,
               color: AppTheme.outline.withAlpha(100),
             ),
             const SizedBox(height: 12),
             Text(
-              'No purchase orders found',
+              'No orders found',
               style: GoogleFonts.dmSans(fontSize: 16, color: AppTheme.outline),
             ),
           ],
@@ -492,16 +468,28 @@ class _PurchaseScreenState extends State<PurchaseScreen>
     );
   }
 
-  Widget _buildOrderCard(PurchaseOrder order) {
-    final statusColor = _statusColor(order.status);
+  Widget _buildOrderCard(Order order) {
+    final statusColor = order.status == OrderStatus.paid
+        ? AppTheme.success
+        : AppTheme.warning;
+    final statusLabel = order.status == OrderStatus.paid ? 'Paid' : 'Pending';
+    final paymentLabel = order.paymentMethod == PaymentMethod.cash
+        ? 'Cash'
+        : 'KHQR';
+
     return GestureDetector(
       onTap: () => _showOrderDetail(order),
       child: Container(
-        decoration: AppTheme.simpleCardDecoration,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.outlineVariant),
+        ),
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header with Order ID and Status
             Row(
               children: [
                 Expanded(
@@ -509,20 +497,19 @@ class _PurchaseScreenState extends State<PurchaseScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        order.poNumber,
+                        order.orderId,
                         style: GoogleFonts.dmSans(
-                          fontSize: 15,
+                          fontSize: 16,
                           fontWeight: FontWeight.w700,
                           color: const Color(0xFF1A1C2B),
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        order.supplierName,
+                        'Created: ${DateFormat('MMM dd, yyyy HH:mm').format(order.createdDate)}',
                         style: GoogleFonts.dmSans(
-                          fontSize: 13,
-                          color: AppTheme.primary,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 12,
+                          color: AppTheme.outline,
                         ),
                       ),
                     ],
@@ -531,27 +518,131 @@ class _PurchaseScreenState extends State<PurchaseScreen>
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
-                    vertical: 4,
+                    vertical: 6,
                   ),
                   decoration: BoxDecoration(
                     color: statusColor.withAlpha(25),
                     borderRadius: BorderRadius.circular(20.0),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Text(
+                    statusLabel,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: statusColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // Customer Info
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.background,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Customer',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.outline,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
                     children: [
-                      Icon(
-                        _statusIcon(order.status),
-                        size: 12,
-                        color: statusColor,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              order.customerName,
+                              style: GoogleFonts.dmSans(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF1A1C2B),
+                              ),
+                            ),
+                            Text(
+                              order.customerPhone,
+                              style: GoogleFonts.dmSans(
+                                fontSize: 12,
+                                color: AppTheme.outline,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 4),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Payment and Total Info
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        _statusLabel(order.status),
+                        'Payment Method',
                         style: GoogleFonts.dmSans(
                           fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: statusColor,
+                          color: AppTheme.outline,
+                        ),
+                      ),
+                      Container(
+                        margin: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: order.paymentMethod == PaymentMethod.cash
+                              ? Colors.green.withAlpha(25)
+                              : Colors.blue.withAlpha(25),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          paymentLabel,
+                          style: GoogleFonts.dmSans(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: order.paymentMethod == PaymentMethod.cash
+                                ? Colors.green
+                                : Colors.blue,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Total Amount',
+                        style: GoogleFonts.dmSans(
+                          fontSize: 11,
+                          color: AppTheme.outline,
+                        ),
+                      ),
+                      Text(
+                        '\$${order.total.toStringAsFixed(2)}',
+                        style: GoogleFonts.dmSans(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.primary,
                         ),
                       ),
                     ],
@@ -559,113 +650,117 @@ class _PurchaseScreenState extends State<PurchaseScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
+            // Additional Info Footer
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(
-                  Icons.calendar_today_rounded,
-                  size: 12,
-                  color: AppTheme.outline,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  'Ordered: ${_formatDate(order.orderDate)}',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 11,
-                    color: AppTheme.outline,
-                  ),
-                ),
-                if (order.expectedDate != null) ...[
-                  const SizedBox(width: 12),
-                  Icon(
-                    Icons.local_shipping_outlined,
-                    size: 12,
-                    color: AppTheme.outline,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Expected: ${_formatDate(order.expectedDate!)}',
-                    style: GoogleFonts.dmSans(
-                      fontSize: 11,
-                      color: AppTheme.outline,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Created by',
+                      style: GoogleFonts.dmSans(
+                        fontSize: 10,
+                        color: AppTheme.outline,
+                      ),
                     ),
+                    Text(
+                      order.createdBy,
+                      style: GoogleFonts.dmSans(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF1A1C2B),
+                      ),
+                    ),
+                  ],
+                ),
+                if (order.status == OrderStatus.paid && order.paidAt != null)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Paid at',
+                        style: GoogleFonts.dmSans(
+                          fontSize: 10,
+                          color: AppTheme.outline,
+                        ),
+                      ),
+                      Text(
+                        DateFormat('MMM dd, HH:mm').format(order.paidAt!),
+                        style: GoogleFonts.dmSans(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.success,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
               ],
             ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
+            const SizedBox(height: 12),
+            // Payment Status Toggle Button - Only visible when pending
+            if (order.status == OrderStatus.pending)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  this.setState(() {
+                    order.status = OrderStatus.paid;
+                    order.paidAt = DateTime.now();
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Order marked as paid'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
-                    color: AppTheme.primary.withAlpha(15),
-                    borderRadius: BorderRadius.circular(6.0),
+                    border: Border.all(color: Colors.green, width: 1.5),
+                    borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    '${order.items.length} item${order.items.length > 1 ? 's' : ''}',
+                    'Mark as Paid',
+                    textAlign: TextAlign.center,
                     style: GoogleFonts.dmSans(
-                      fontSize: 11,
-                      color: AppTheme.primary,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: Colors.green,
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withAlpha(15),
-                    borderRadius: BorderRadius.circular(6.0),
-                  ),
-                  child: Text(
-                    '${order.totalItems} units',
-                    style: GoogleFonts.dmSans(
-                      fontSize: 11,
-                      color: AppTheme.primary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  '\$${order.totalAmount.toStringAsFixed(2)}',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.primary,
-                  ),
-                ),
-              ],
-            ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  String _formatDate(DateTime d) => '${d.day}/${d.month}/${d.year}';
-
-  void _showOrderDetail(PurchaseOrder order) {
+  void _showOrderDetail(Order order) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _OrderDetailSheet(
         order: order,
-        onStatusChanged: (s) {
-          setState(() => order.status = s);
+        onMarkPaid: () {
+          setState(() {
+            order.status = OrderStatus.paid;
+          });
           Navigator.pop(context);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Order marked as paid')));
         },
         onDelete: () {
           setState(() => _orders.remove(order));
           Navigator.pop(context);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Order deleted')));
         },
       ),
     );
@@ -685,12 +780,12 @@ class _PurchaseScreenState extends State<PurchaseScreen>
         ],
       ),
       child: FloatingActionButton.extended(
-        onPressed: () => _showAddOrderDialog(),
+        onPressed: () => _showCreateOrderDialog(),
         backgroundColor: Colors.transparent,
         elevation: 0,
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: Text(
-          'New PO',
+          'New Order',
           style: GoogleFonts.dmSans(
             color: Colors.white,
             fontWeight: FontWeight.w600,
@@ -700,90 +795,655 @@ class _PurchaseScreenState extends State<PurchaseScreen>
     );
   }
 
-  void _showAddOrderDialog() {
-    final poController = TextEditingController(
-      text: 'PO-2024-00${_orders.length + 1}',
-    );
-    final supplierController = TextEditingController();
-    final contactController = TextEditingController();
-    final notesController = TextEditingController();
+  void _showCreateOrderDialog() {
+    Customer? selectedCustomer;
+    Product? selectedProduct;
+    final itemNameController = TextEditingController();
+    final quantityController = TextEditingController(text: '1');
+    final sellingPriceController = TextEditingController();
+    final discountController = TextEditingController(text: '0');
+    PaymentMethod selectedPayment = PaymentMethod.cash;
+    final createdByController = TextEditingController(text: 'Current User');
+    List<OrderItem> addedItems = [];
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-          'New Purchase Order',
-          style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: poController,
-                decoration: const InputDecoration(labelText: 'PO Number'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: supplierController,
-                decoration: const InputDecoration(labelText: 'Supplier Name'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: contactController,
-                decoration: const InputDecoration(labelText: 'Contact Email'),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: notesController,
-                decoration: const InputDecoration(labelText: 'Notes'),
-                maxLines: 2,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (supplierController.text.isNotEmpty) {
-                setState(() {
-                  _orders.insert(
-                    0,
-                    PurchaseOrder(
-                      id: 'PO${DateTime.now().millisecondsSinceEpoch}',
-                      poNumber: poController.text,
-                      supplierName: supplierController.text,
-                      supplierContact: contactController.text,
-                      orderDate: DateTime.now(),
-                      status: PurchaseStatus.pending,
-                      items: [],
-                      notes: notesController.text,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return Dialog(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey[300]!),
                     ),
-                  );
-                });
-                Navigator.pop(ctx);
-              }
-            },
-            child: const Text('Create'),
-          ),
-        ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Create New Order',
+                          style: GoogleFonts.dmSans(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                ),
+                // Content
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Customer Selection
+                          Text(
+                            'Customer Information',
+                            style: GoogleFonts.dmSans(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: DropdownButton<Customer>(
+                              isExpanded: true,
+                              hint: const Text('Select Customer'),
+                              value: selectedCustomer,
+                              underline: const SizedBox(),
+                              items: _customers.map((customer) {
+                                return DropdownMenuItem<Customer>(
+                                  value: customer,
+                                  child: Text(
+                                    '${customer.name} (${customer.phone})',
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: (customer) {
+                                setState(() => selectedCustomer = customer);
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Product Selection with Filtering
+                          Text(
+                            'Order Items',
+                            style: GoogleFonts.dmSans(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: itemNameController,
+                            decoration: InputDecoration(
+                              labelText: 'Product Name',
+                              hintText: 'Type to filter products...',
+                              border: OutlineInputBorder(
+                                borderSide: BorderSide(
+                                  color: selectedProduct != null
+                                      ? AppTheme.primary
+                                      : Colors.grey,
+                                  width: selectedProduct != null ? 2 : 1,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide: BorderSide(
+                                  color: selectedProduct != null
+                                      ? AppTheme.primary
+                                      : Colors.grey,
+                                  width: selectedProduct != null ? 2 : 1,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: BorderSide(
+                                  color: AppTheme.primary,
+                                  width: 2,
+                                ),
+                              ),
+                              filled: selectedProduct != null,
+                              fillColor: selectedProduct != null
+                                  ? AppTheme.primary.withAlpha(20)
+                                  : Colors.transparent,
+                              suffixIcon: selectedProduct != null
+                                  ? Padding(
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.check_circle,
+                                            color: AppTheme.primary,
+                                            size: 24,
+                                          ),
+                                          if (itemNameController
+                                              .text
+                                              .isNotEmpty)
+                                            IconButton(
+                                              icon: const Icon(Icons.clear),
+                                              onPressed: () {
+                                                itemNameController.clear();
+                                                setState(() {
+                                                  selectedProduct = null;
+                                                  sellingPriceController
+                                                      .clear();
+                                                });
+                                              },
+                                            ),
+                                        ],
+                                      ),
+                                    )
+                                  : itemNameController.text.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.clear),
+                                      onPressed: () {
+                                        itemNameController.clear();
+                                        setState(() {
+                                          selectedProduct = null;
+                                          sellingPriceController.clear();
+                                        });
+                                      },
+                                    )
+                                  : null,
+                            ),
+                            onChanged: (value) {
+                              setState(() {
+                                if (value.isEmpty) {
+                                  selectedProduct = null;
+                                  sellingPriceController.clear();
+                                }
+                              });
+                            },
+                          ),
+                          // Product Filter Results
+                          if (itemNameController.text.isNotEmpty &&
+                              selectedProduct == null) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Builder(
+                                builder: (context) {
+                                  final filteredProducts = _products
+                                      .where(
+                                        (p) => p.name.toLowerCase().contains(
+                                          itemNameController.text.toLowerCase(),
+                                        ),
+                                      )
+                                      .toList();
+
+                                  if (filteredProducts.isEmpty) {
+                                    return Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.withAlpha(25),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        'Product does not exist',
+                                        style: GoogleFonts.dmSans(
+                                          fontSize: 12,
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    );
+                                  }
+
+                                  return Container(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(color: Colors.grey),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Column(
+                                      children: filteredProducts.map((product) {
+                                        return InkWell(
+                                          onTap: () {
+                                            setState(() {
+                                              selectedProduct = product;
+                                              itemNameController.text =
+                                                  product.name;
+                                              sellingPriceController.text =
+                                                  product.sellingPrice
+                                                      .toStringAsFixed(2);
+                                            });
+                                          },
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    product.name,
+                                                    style: GoogleFonts.dmSans(
+                                                      fontSize: 12,
+                                                    ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  '\$${product.sellingPrice.toStringAsFixed(2)}',
+                                                  style: GoogleFonts.dmSans(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppTheme.primary,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          // Quantity and Selling Price
+                          if (selectedProduct != null) ...[
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: quantityController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Quantity',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (value) {
+                                      // Prevent negative numbers
+                                      if (value.isNotEmpty &&
+                                          value.startsWith('-')) {
+                                        quantityController.text = value
+                                            .substring(1);
+                                        quantityController.selection =
+                                            TextSelection.fromPosition(
+                                              TextPosition(
+                                                offset: quantityController
+                                                    .text
+                                                    .length,
+                                              ),
+                                            );
+                                      }
+                                      setState(() {});
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: sellingPriceController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Selling Price',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    readOnly: true,
+                                    style: GoogleFonts.dmSans(
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            // Discount Field
+                            TextField(
+                              controller: discountController,
+                              decoration: const InputDecoration(
+                                labelText: 'Discount (%)',
+                                border: OutlineInputBorder(),
+                              ),
+                              keyboardType: TextInputType.number,
+                              onChanged: (value) {
+                                // Prevent negative numbers
+                                if (value.isNotEmpty && value.startsWith('-')) {
+                                  discountController.text = value.substring(1);
+                                  discountController
+                                      .selection = TextSelection.fromPosition(
+                                    TextPosition(
+                                      offset: discountController.text.length,
+                                    ),
+                                  );
+                                }
+                                setState(() {});
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            // Add Item Button
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: () {
+                                  final quantity =
+                                      int.tryParse(quantityController.text) ??
+                                      0;
+                                  if (quantity <= 0) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Quantity must be greater than 0',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  final discount =
+                                      double.tryParse(
+                                        discountController.text,
+                                      ) ??
+                                      0.0;
+                                  if (discount < 0 || discount > 100) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Discount must be between 0 and 100',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  setState(() {
+                                    addedItems.add(
+                                      OrderItem(
+                                        itemName: selectedProduct!.name,
+                                        quantity: quantity,
+                                        unitPrice:
+                                            selectedProduct!.sellingPrice,
+                                        discount: discount,
+                                      ),
+                                    );
+                                    // Reset for next item
+                                    selectedProduct = null;
+                                    itemNameController.clear();
+                                    quantityController.text = '1';
+                                    sellingPriceController.clear();
+                                    discountController.text = '0';
+                                  });
+                                },
+                                icon: const Icon(Icons.add),
+                                label: const Text('Add Item'),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          // Added Items List
+                          if (addedItems.isNotEmpty) ...[
+                            Text(
+                              'Added Items (${addedItems.length})',
+                              style: GoogleFonts.dmSans(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: addedItems.length,
+                                separatorBuilder: (_, __) =>
+                                    Divider(height: 1, color: Colors.grey[300]),
+                                itemBuilder: (context, index) {
+                                  final item = addedItems[index];
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item.itemName,
+                                                style: GoogleFonts.dmSans(
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                              Text(
+                                                'Qty: ${item.quantity} × \$${item.unitPrice.toStringAsFixed(2)}',
+                                                style: GoogleFonts.dmSans(
+                                                  fontSize: 11,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                              if (item.discount > 0)
+                                                Text(
+                                                  'Discount: ${item.discount.toStringAsFixed(0)}% (-\$${item.discountAmount.toStringAsFixed(2)})',
+                                                  style: GoogleFonts.dmSans(
+                                                    fontSize: 11,
+                                                    color: Colors.orange[700],
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              Text(
+                                                'Total: \$${item.lineTotal.toStringAsFixed(2)}',
+                                                style: GoogleFonts.dmSans(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.primary,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            size: 18,
+                                          ),
+                                          onPressed: () {
+                                            setState(
+                                              () => addedItems.removeAt(index),
+                                            );
+                                          },
+                                          color: Colors.red,
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            // Total Display
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppTheme.background,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: AppTheme.outlineVariant,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Total:',
+                                    style: GoogleFonts.dmSans(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    '\$${_calculateInvoiceTotal(addedItems).toStringAsFixed(2)}',
+                                    style: GoogleFonts.dmSans(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppTheme.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          // Payment Method
+                          Text(
+                            'Payment Method',
+                            style: GoogleFonts.dmSans(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: RadioListTile<PaymentMethod>(
+                                  title: const Text('Cash'),
+                                  value: PaymentMethod.cash,
+                                  groupValue: selectedPayment,
+                                  onChanged: (value) {
+                                    setState(() => selectedPayment = value!);
+                                  },
+                                ),
+                              ),
+                              Expanded(
+                                child: RadioListTile<PaymentMethod>(
+                                  title: const Text('KHQR'),
+                                  value: PaymentMethod.khqr,
+                                  groupValue: selectedPayment,
+                                  onChanged: (value) {
+                                    setState(() => selectedPayment = value!);
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                // Actions
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: Colors.grey[300]!)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: () {
+                          // Validation
+                          if (selectedCustomer == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please select a customer'),
+                              ),
+                            );
+                            return;
+                          }
+                          if (addedItems.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Please add at least one item'),
+                              ),
+                            );
+                            return;
+                          }
+
+                          final total = _calculateInvoiceTotal(addedItems);
+
+                          this.setState(() {
+                            _orders.insert(
+                              0,
+                              Order(
+                                orderId:
+                                    'ORD-2024-${(_orders.length + 1).toString().padLeft(3, '0')}',
+                                createdDate: DateTime.now(),
+                                customerName: selectedCustomer!.name,
+                                customerPhone: selectedCustomer!.phone,
+                                paymentMethod: selectedPayment,
+                                total: total,
+                                status: OrderStatus.pending,
+                                paidAt: null,
+                                createdBy: createdByController.text,
+                                items: addedItems,
+                              ),
+                            );
+                          });
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Order created successfully'),
+                            ),
+                          );
+                        },
+                        child: const Text('Create Order'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
+  }
+
+  double _calculateInvoiceTotal(List<OrderItem> items) {
+    double total = 0;
+    for (var item in items) {
+      total += item.lineTotal;
+    }
+    return total;
   }
 }
 
 class _OrderDetailSheet extends StatelessWidget {
-  final PurchaseOrder order;
-  final ValueChanged<PurchaseStatus> onStatusChanged;
+  final Order order;
+  final VoidCallback onMarkPaid;
   final VoidCallback onDelete;
 
   const _OrderDetailSheet({
     required this.order,
-    required this.onStatusChanged,
+    required this.onMarkPaid,
     required this.onDelete,
   });
 
@@ -791,194 +1451,403 @@ class _OrderDetailSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
-        color: AppTheme.surface,
+        color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(top: 12),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppTheme.outlineVariant,
-              borderRadius: BorderRadius.circular(2.0),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTheme.outlineVariant,
+                borderRadius: BorderRadius.circular(2.0),
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Order Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            order.poNumber,
+                            order.orderId,
                             style: GoogleFonts.dmSans(
                               fontSize: 20,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           Text(
-                            order.supplierName,
+                            DateFormat(
+                              'MMM dd, yyyy HH:mm',
+                            ).format(order.createdDate),
                             style: GoogleFonts.dmSans(
-                              fontSize: 14,
+                              fontSize: 12,
+                              color: AppTheme.outline,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: order.status == OrderStatus.paid
+                              ? AppTheme.success.withAlpha(25)
+                              : AppTheme.warning.withAlpha(25),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          order.status == OrderStatus.paid ? 'Paid' : 'Pending',
+                          style: GoogleFonts.dmSans(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: order.status == OrderStatus.paid
+                                ? AppTheme.success
+                                : AppTheme.warning,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  // Customer Section
+                  Text(
+                    'Customer Information',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.background,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.outlineVariant),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Name:',
+                              style: GoogleFonts.dmSans(
+                                fontSize: 12,
+                                color: AppTheme.outline,
+                              ),
+                            ),
+                            Text(
+                              order.customerName,
+                              style: GoogleFonts.dmSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Phone:',
+                              style: GoogleFonts.dmSans(
+                                fontSize: 12,
+                                color: AppTheme.outline,
+                              ),
+                            ),
+                            Text(
+                              order.customerPhone,
+                              style: GoogleFonts.dmSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Payment Info Section
+                  Text(
+                    'Payment Information',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.background,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.outlineVariant),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Method:',
+                              style: GoogleFonts.dmSans(
+                                fontSize: 12,
+                                color: AppTheme.outline,
+                              ),
+                            ),
+                            Text(
+                              order.paymentMethod == PaymentMethod.cash
+                                  ? 'Cash'
+                                  : 'KHQR',
+                              style: GoogleFonts.dmSans(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Total:',
+                              style: GoogleFonts.dmSans(
+                                fontSize: 12,
+                                color: AppTheme.outline,
+                              ),
+                            ),
+                            Text(
+                              '\$${order.total.toStringAsFixed(2)}',
+                              style: GoogleFonts.dmSans(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (order.status == OrderStatus.paid &&
+                            order.paidAt != null) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Paid At:',
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 12,
+                                  color: AppTheme.outline,
+                                ),
+                              ),
+                              Text(
+                                DateFormat(
+                                  'MMM dd, HH:mm',
+                                ).format(order.paidAt!),
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.success,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Items Section
+                  Text(
+                    'Order Items',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ...order.items.map(
+                    (item) => Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.background,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppTheme.outlineVariant),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.itemName,
+                                  style: GoogleFonts.dmSans(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  '${item.quantity} x \$${item.unitPrice.toStringAsFixed(2)}',
+                                  style: GoogleFonts.dmSans(
+                                    fontSize: 11,
+                                    color: AppTheme.outline,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            '\$${item.lineTotal.toStringAsFixed(2)}',
+                            style: GoogleFonts.dmSans(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                               color: AppTheme.primary,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: AppTheme.error,
-                      ),
-                      onPressed: onDelete,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Line Items',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.outline,
                   ),
-                ),
-                const SizedBox(height: 8),
-                ...order.items.map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
+                  const SizedBox(height: 20),
+                  // Additional Info
+                  Text(
+                    'Additional Information',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.background,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.outlineVariant),
+                    ),
                     child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.itemName,
-                                style: GoogleFonts.dmSans(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              Text(
-                                item.sku,
-                                style: GoogleFonts.dmSans(
-                                  fontSize: 11,
-                                  color: AppTheme.outline,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                         Text(
-                          '${item.quantity} × \$${item.unitCost.toStringAsFixed(2)}',
+                          'Created By:',
                           style: GoogleFonts.dmSans(
                             fontSize: 12,
                             color: AppTheme.outline,
                           ),
                         ),
-                        const SizedBox(width: 8),
                         Text(
-                          '\$${item.totalPrice.toStringAsFixed(2)}',
+                          order.createdBy,
                           style: GoogleFonts.dmSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.primary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-                const Divider(),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Total',
-                      style: GoogleFonts.dmSans(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(
-                      '\$${order.totalAmount.toStringAsFixed(2)}',
-                      style: GoogleFonts.dmSans(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Update Status',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.outline,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: PurchaseStatus.values.map((s) {
-                    final isSelected = order.status == s;
-                    final color = s == PurchaseStatus.pending
-                        ? AppTheme.warning
-                        : s == PurchaseStatus.received
-                        ? AppTheme.success
-                        : AppTheme.error;
-                    return Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: OutlinedButton(
-                          onPressed: () => onStatusChanged(s),
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: isSelected
-                                ? color.withAlpha(25)
-                                : null,
-                            side: BorderSide(
-                              color: isSelected
-                                  ? color
-                                  : AppTheme.outlineVariant,
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                          ),
-                          child: Text(
-                            s == PurchaseStatus.pending
-                                ? 'Pending'
-                                : s == PurchaseStatus.received
-                                ? 'Received'
-                                : 'Cancel',
-                            style: GoogleFonts.dmSans(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: isSelected ? color : AppTheme.outline,
-                            ),
+                  const SizedBox(height: 20),
+                  // Action Buttons
+                  if (order.status == OrderStatus.pending)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: onMarkPaid,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.success,
+                        ),
+                        child: Text(
+                          'Mark as Paid',
+                          style: GoogleFonts.dmSans(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 8),
-              ],
+                    ),
+                  if (order.status == OrderStatus.pending)
+                    const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        InvoicePdfGenerator.generateAndPreviewPdf(
+                          context,
+                          order,
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.file_download_rounded,
+                            size: 18,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Export as PDF',
+                            style: GoogleFonts.dmSans(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        onDelete();
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.error,
+                        side: const BorderSide(
+                          color: AppTheme.error,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Text(
+                        'Delete Order',
+                        style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

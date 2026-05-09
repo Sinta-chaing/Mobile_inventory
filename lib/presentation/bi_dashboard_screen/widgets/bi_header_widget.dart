@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/profile_menu_widget.dart';
 
 class BIHeaderWidget extends StatelessWidget {
   final String selectedPeriod;
@@ -58,6 +59,7 @@ class BIHeaderWidget extends StatelessWidget {
                 color: AppTheme.outline,
                 tooltip: 'Export Report',
               ),
+              const ProfileMenuWidget(),
             ],
           ),
           const SizedBox(height: 12),

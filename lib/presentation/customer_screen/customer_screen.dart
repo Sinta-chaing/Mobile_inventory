@@ -5,6 +5,7 @@ import 'dart:ui';
 import '../../routes/app_routes.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
+import '../../widgets/profile_menu_widget.dart';
 
 enum CustomerTier { bronze, silver, gold, platinum }
 
@@ -192,13 +193,21 @@ class _CustomerScreenState extends State<CustomerScreen> {
     return name.isNotEmpty ? name[0].toUpperCase() : '?';
   }
 
+  BoxDecoration _outlinedCardDecoration({double radius = 12}) {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: AppTheme.outlineVariant, width: 1),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: Container(
-        decoration: const BoxDecoration(gradient: AppTheme.backgroundGradient),
-        child: SafeArea(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Container(
+          color: Colors.white,
           child: Column(
             children: [
               _buildHeader(),
@@ -298,6 +307,7 @@ class _CustomerScreenState extends State<CustomerScreen> {
                   ],
                 ),
               ),
+              const ProfileMenuWidget(),
             ],
           ),
           const SizedBox(height: 16),
@@ -348,7 +358,7 @@ class _CustomerScreenState extends State<CustomerScreen> {
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: AppTheme.glassCardDecoration,
+          decoration: _outlinedCardDecoration(radius: 14),
           child: Row(
             children: [
               Container(
@@ -398,7 +408,7 @@ class _CustomerScreenState extends State<CustomerScreen> {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
-            decoration: AppTheme.glassCardDecoration,
+            decoration: _outlinedCardDecoration(radius: 14),
             child: TextField(
               onChanged: (v) => setState(() => _searchQuery = v),
               style: GoogleFonts.dmSans(
@@ -470,7 +480,7 @@ class _CustomerScreenState extends State<CustomerScreen> {
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
-            decoration: AppTheme.glassCardDecoration,
+            decoration: _outlinedCardDecoration(radius: 16),
             padding: const EdgeInsets.all(14),
             child: Row(
               children: [
@@ -530,7 +540,7 @@ class _CustomerScreenState extends State<CustomerScreen> {
                               color: tierColor.withAlpha(20),
                               borderRadius: BorderRadius.circular(10.0),
                               border: Border.all(
-                                color: tierColor.withAlpha(80),
+                                color: AppTheme.outlineVariant,
                               ),
                             ),
                             child: Text(
@@ -871,6 +881,7 @@ class _CustomerDetailSheet extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: AppTheme.primary.withAlpha(10),
                           borderRadius: BorderRadius.circular(12.0),
+                          border: Border.all(color: AppTheme.outlineVariant),
                         ),
                         child: Column(
                           children: [
@@ -900,6 +911,7 @@ class _CustomerDetailSheet extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: AppTheme.success.withAlpha(10),
                           borderRadius: BorderRadius.circular(12.0),
+                          border: Border.all(color: AppTheme.outlineVariant),
                         ),
                         child: Column(
                           children: [
@@ -932,6 +944,7 @@ class _CustomerDetailSheet extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: AppTheme.surfaceVariant,
                       borderRadius: BorderRadius.circular(10.0),
+                      border: Border.all(color: AppTheme.outlineVariant),
                     ),
                     child: Text(
                       customer.notes,

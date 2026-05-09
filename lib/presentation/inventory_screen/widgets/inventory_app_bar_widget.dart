@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
+import '../../../widgets/profile_menu_widget.dart';
 
 class InventoryAppBarWidget extends StatelessWidget {
   final int itemCount;
@@ -42,18 +43,7 @@ class InventoryAppBarWidget extends StatelessWidget {
             ],
           ),
           const Spacer(),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.notifications_outlined),
-            color: AppTheme.outline,
-            tooltip: 'Alerts',
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.tune_rounded),
-            color: AppTheme.outline,
-            tooltip: 'Sort',
-          ),
+          const ProfileMenuWidget(),
         ],
       ),
     );
