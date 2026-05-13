@@ -62,7 +62,6 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         phone: '+1 (555) 100-2000',
         address: '100 Industrial Way, Chicago, IL 60601',
         category: 'Power Tools',
-        status: SupplierStatus.active,
         totalOrders: 125400.00,
         orderCount: 28,
         rating: 4.8,
@@ -77,7 +76,6 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         phone: '+1 (555) 200-3000',
         address: '200 Commerce Blvd, Detroit, MI 48201',
         category: 'Hand Tools',
-        status: SupplierStatus.active,
         totalOrders: 67800.50,
         orderCount: 19,
         rating: 4.5,
@@ -92,7 +90,6 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         phone: '+1 (555) 300-4000',
         address: '300 Safety Pkwy, Cleveland, OH 44101',
         category: 'Safety Equipment',
-        status: SupplierStatus.active,
         totalOrders: 34200.00,
         orderCount: 12,
         rating: 4.2,
@@ -107,7 +104,6 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         phone: '+1 (555) 400-5000',
         address: '400 Tech Drive, Columbus, OH 43201',
         category: 'Measuring Tools',
-        status: SupplierStatus.onHold,
         totalOrders: 18900.00,
         orderCount: 8,
         rating: 3.8,
@@ -122,7 +118,6 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         phone: '+1 (555) 500-6000',
         address: '500 Logistics Ave, Indianapolis, IN 46201',
         category: 'General Hardware',
-        status: SupplierStatus.inactive,
         totalOrders: 5600.00,
         orderCount: 4,
         rating: 3.2,
@@ -136,9 +131,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
   void initState() {
     super.initState();
     _suppliers = _initializeSuppliers();
-    _filteredSuppliers = _suppliers
-        .where((s) => s.status == SupplierStatus.active)
-        .toList();
+    _filteredSuppliers = _suppliers;
 
     final item = widget.existingItem;
     _nameController = TextEditingController(text: item?.name ?? '');
@@ -169,7 +162,6 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
           phone: '',
           address: '',
           category: '',
-          status: SupplierStatus.active,
           totalOrders: 0,
           orderCount: 0,
           rating: 0,
@@ -197,14 +189,11 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
   void _filterSuppliers(String query) {
     setState(() {
       if (query.isEmpty) {
-        _filteredSuppliers = _suppliers
-            .where((s) => s.status == SupplierStatus.active)
-            .toList();
+        _filteredSuppliers = _suppliers;
       } else {
         _filteredSuppliers = _suppliers
             .where(
               (s) =>
-                  s.status == SupplierStatus.active &&
                   (s.name.toLowerCase().contains(query.toLowerCase()) ||
                       s.category.toLowerCase().contains(query.toLowerCase())),
             )

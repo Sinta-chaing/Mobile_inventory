@@ -7,8 +7,6 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
 
-enum CustomerTier { bronze, silver, gold, platinum }
-
 class Customer {
   final String id;
   String name;
@@ -16,7 +14,6 @@ class Customer {
   String phone;
   String company;
   String address;
-  CustomerTier tier;
   double totalPurchases;
   int orderCount;
   DateTime joinDate;
@@ -29,7 +26,6 @@ class Customer {
     required this.phone,
     required this.company,
     required this.address,
-    required this.tier,
     required this.totalPurchases,
     required this.orderCount,
     required this.joinDate,
@@ -47,86 +43,67 @@ class CustomerScreen extends StatefulWidget {
 class _CustomerScreenState extends State<CustomerScreen> {
   int _selectedNavIndex = 2;
   String _searchQuery = '';
-  CustomerTier? _filterTier;
 
   final List<Customer> _customers = [
     Customer(
       id: 'C001',
-      name: 'Marcus Johnson',
-      email: 'marcus.j@constructpro.com',
-      phone: '+1 (555) 234-5678',
-      company: 'ConstructPro LLC',
-      address: '1234 Industrial Blvd, Houston, TX 77001',
-      tier: CustomerTier.platinum,
-      totalPurchases: 48750.00,
-      orderCount: 34,
-      joinDate: DateTime(2021, 3, 15),
-      notes: 'Key account - priority service',
+      name: 'John Doe',
+      email: 'john.doe@example.com',
+      phone: '+855 12 345 678',
+      company: 'Construction Pro',
+      address: '123 Main St, Phnom Penh',
+      totalPurchases: 2999.80,
+      orderCount: 1,
+      joinDate: DateTime(2023, 6, 15),
+      notes: 'Regular customer',
     ),
     Customer(
       id: 'C002',
-      name: 'Sarah Chen',
-      email: 'sarah.chen@buildright.com',
-      phone: '+1 (555) 345-6789',
-      company: 'BuildRight Contractors',
-      address: '567 Commerce St, Dallas, TX 75201',
-      tier: CustomerTier.gold,
-      totalPurchases: 22300.50,
-      orderCount: 18,
-      joinDate: DateTime(2022, 7, 20),
+      name: 'Jane Smith',
+      email: 'jane.smith@example.com',
+      phone: '+855 98 765 432',
+      company: 'Build Right',
+      address: '456 Oak Ave, Siem Reap',
+      totalPurchases: 799.70,
+      orderCount: 1,
+      joinDate: DateTime(2023, 7, 20),
       notes: '',
     ),
     Customer(
       id: 'C003',
-      name: 'Robert Martinez',
-      email: 'r.martinez@fixitfast.com',
-      phone: '+1 (555) 456-7890',
-      company: 'Fix-It-Fast Services',
-      address: '890 Repair Ave, Austin, TX 78701',
-      tier: CustomerTier.silver,
-      totalPurchases: 8900.75,
-      orderCount: 9,
-      joinDate: DateTime(2023, 1, 10),
-      notes: 'Prefers weekend deliveries',
+      name: 'Mike Johnson',
+      email: 'mike.johnson@example.com',
+      phone: '+855 77 123 456',
+      company: 'Fix It Fast',
+      address: '789 Pine Rd, Battambang',
+      totalPurchases: 699.50,
+      orderCount: 1,
+      joinDate: DateTime(2023, 8, 10),
+      notes: 'Quick turnaround needed',
     ),
     Customer(
       id: 'C004',
-      name: 'Emily Watson',
-      email: 'emily.w@homeworks.com',
-      phone: '+1 (555) 567-8901',
-      company: 'HomeWorks Renovation',
-      address: '321 Remodel Rd, San Antonio, TX 78201',
-      tier: CustomerTier.gold,
-      totalPurchases: 15600.00,
-      orderCount: 12,
-      joinDate: DateTime(2022, 11, 5),
-      notes: '',
+      name: 'Sarah Williams',
+      email: 'sarah.williams@example.com',
+      phone: '+855 55 987 654',
+      company: 'Home Renovations',
+      address: '321 Elm St, Kompong Cham',
+      totalPurchases: 0.00,
+      orderCount: 0,
+      joinDate: DateTime(2024, 1, 5),
+      notes: 'New customer - no orders yet',
     ),
     Customer(
       id: 'C005',
-      name: 'David Kim',
-      email: 'd.kim@techbuild.com',
-      phone: '+1 (555) 678-9012',
-      company: 'TechBuild Solutions',
-      address: '654 Tech Park Dr, Plano, TX 75023',
-      tier: CustomerTier.bronze,
-      totalPurchases: 2450.25,
-      orderCount: 3,
+      name: 'David Brown',
+      email: 'david.brown@example.com',
+      phone: '+855 66 432 109',
+      company: 'Tech Solutions',
+      address: '654 Birch Ln, Kandal',
+      totalPurchases: 0.00,
+      orderCount: 0,
       joinDate: DateTime(2024, 2, 28),
-      notes: 'New customer - follow up',
-    ),
-    Customer(
-      id: 'C006',
-      name: 'Lisa Thompson',
-      email: 'lisa.t@premiumhomes.com',
-      phone: '+1 (555) 789-0123',
-      company: 'Premium Homes Inc.',
-      address: '987 Luxury Lane, Frisco, TX 75034',
-      tier: CustomerTier.platinum,
-      totalPurchases: 67200.00,
-      orderCount: 45,
-      joinDate: DateTime(2020, 9, 1),
-      notes: 'VIP - dedicated account manager',
+      notes: 'Prospect - follow up',
     ),
   ];
 
@@ -137,8 +114,7 @@ class _CustomerScreenState extends State<CustomerScreen> {
           c.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           c.company.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           c.email.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchTier = _filterTier == null || c.tier == _filterTier;
-      return matchSearch && matchTier;
+      return matchSearch;
     }).toList();
   }
 
@@ -161,30 +137,9 @@ class _CustomerScreenState extends State<CustomerScreen> {
     }
   }
 
-  Color _tierColor(CustomerTier t) {
-    switch (t) {
-      case CustomerTier.bronze:
-        return const Color(0xFFCD7F32);
-      case CustomerTier.silver:
-        return const Color(0xFF9E9E9E);
-      case CustomerTier.gold:
-        return const Color(0xFFFFC107);
-      case CustomerTier.platinum:
-        return const Color(0xFF1565C0);
-    }
-  }
-
-  String _tierLabel(CustomerTier t) {
-    switch (t) {
-      case CustomerTier.bronze:
-        return 'Bronze';
-      case CustomerTier.silver:
-        return 'Silver';
-      case CustomerTier.gold:
-        return 'Gold';
-      case CustomerTier.platinum:
-        return 'Platinum';
-    }
+  Color _tierColor(int index) {
+    final colors = [AppTheme.primary, const Color(0xFF6366F1)];
+    return colors[index % colors.length];
   }
 
   String _initials(String name) {
@@ -254,9 +209,6 @@ class _CustomerScreenState extends State<CustomerScreen> {
       0,
       (s, c) => s + c.totalPurchases,
     );
-    final platinum = _customers
-        .where((c) => c.tier == CustomerTier.platinum)
-        .length;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
@@ -324,17 +276,17 @@ class _CustomerScreenState extends State<CustomerScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: _buildStatCard(
-                  'Platinum',
-                  '$platinum',
-                  Icons.star_rounded,
-                  const Color(0xFF1565C0),
+                  'Total Orders',
+                  '${_customers.fold<int>(0, (s, c) => s + c.orderCount)}',
+                  Icons.shopping_bag_outlined,
+                  const Color(0xFF6366F1),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _buildStatCard(
                   'Revenue',
-                  '\$${(totalRevenue / 1000).toStringAsFixed(0)}k',
+                  '\$${(totalRevenue / 1000).toStringAsFixed(1)}k',
                   Icons.trending_up_rounded,
                   AppTheme.success,
                 ),
@@ -472,7 +424,7 @@ class _CustomerScreenState extends State<CustomerScreen> {
   }
 
   Widget _buildCustomerCard(Customer customer) {
-    final tierColor = _tierColor(customer.tier);
+    final tierColor = _tierColor(_customers.indexOf(customer));
     return GestureDetector(
       onTap: () => _showCustomerDetail(customer),
       child: ClipRRect(
@@ -518,41 +470,14 @@ class _CustomerScreenState extends State<CustomerScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              customer.name,
-                              style: GoogleFonts.dmSans(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: const Color(0xFF1A1C2B),
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: tierColor.withAlpha(20),
-                              borderRadius: BorderRadius.circular(10.0),
-                              border: Border.all(
-                                color: AppTheme.outlineVariant,
-                              ),
-                            ),
-                            child: Text(
-                              _tierLabel(customer.tier),
-                              style: GoogleFonts.dmSans(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: tierColor,
-                              ),
-                            ),
-                          ),
-                        ],
+                      Text(
+                        customer.name,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF1A1C2B),
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -730,7 +655,6 @@ class _CustomerScreenState extends State<CustomerScreen> {
                       phone: phoneCtrl.text,
                       company: companyCtrl.text,
                       address: addressCtrl.text,
-                      tier: CustomerTier.bronze,
                       totalPurchases: 0,
                       orderCount: 0,
                       joinDate: DateTime.now(),

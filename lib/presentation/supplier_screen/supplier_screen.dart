@@ -7,8 +7,6 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
 
-enum SupplierStatus { active, inactive, onHold }
-
 class Supplier {
   final String id;
   String name;
@@ -17,7 +15,6 @@ class Supplier {
   String phone;
   String address;
   String category;
-  SupplierStatus status;
   double totalOrders;
   int orderCount;
   double rating;
@@ -32,7 +29,6 @@ class Supplier {
     required this.phone,
     required this.address,
     required this.category,
-    required this.status,
     required this.totalOrders,
     required this.orderCount,
     required this.rating,
@@ -51,7 +47,6 @@ class SupplierScreen extends StatefulWidget {
 class _SupplierScreenState extends State<SupplierScreen> {
   int _selectedNavIndex = 3;
   String _searchQuery = '';
-  SupplierStatus? _filterStatus;
 
   final List<Supplier> _suppliers = [
     Supplier(
@@ -62,7 +57,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
       phone: '+1 (555) 100-2000',
       address: '100 Industrial Way, Chicago, IL 60601',
       category: 'Power Tools',
-      status: SupplierStatus.active,
       totalOrders: 125400.00,
       orderCount: 28,
       rating: 4.8,
@@ -77,7 +71,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
       phone: '+1 (555) 200-3000',
       address: '200 Commerce Blvd, Detroit, MI 48201',
       category: 'Hand Tools',
-      status: SupplierStatus.active,
       totalOrders: 67800.50,
       orderCount: 19,
       rating: 4.5,
@@ -92,7 +85,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
       phone: '+1 (555) 300-4000',
       address: '300 Safety Pkwy, Cleveland, OH 44101',
       category: 'Safety Equipment',
-      status: SupplierStatus.active,
       totalOrders: 34200.00,
       orderCount: 12,
       rating: 4.2,
@@ -107,7 +99,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
       phone: '+1 (555) 400-5000',
       address: '400 Tech Drive, Columbus, OH 43201',
       category: 'Measuring Tools',
-      status: SupplierStatus.onHold,
       totalOrders: 18900.00,
       orderCount: 8,
       rating: 3.8,
@@ -122,7 +113,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
       phone: '+1 (555) 500-6000',
       address: '500 Logistics Ave, Indianapolis, IN 46201',
       category: 'General Hardware',
-      status: SupplierStatus.inactive,
       totalOrders: 5600.00,
       orderCount: 4,
       rating: 3.2,
@@ -138,8 +128,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
           s.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           s.category.toLowerCase().contains(_searchQuery.toLowerCase()) ||
           s.contactPerson.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchStatus = _filterStatus == null || s.status == _filterStatus;
-      return matchSearch && matchStatus;
+      return matchSearch;
     }).toList();
   }
 
@@ -159,28 +148,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
       case 4:
         Navigator.pushReplacementNamed(context, AppRoutes.biDashboardScreen);
         break;
-    }
-  }
-
-  Color _statusColor(SupplierStatus s) {
-    switch (s) {
-      case SupplierStatus.active:
-        return AppTheme.success;
-      case SupplierStatus.inactive:
-        return AppTheme.error;
-      case SupplierStatus.onHold:
-        return AppTheme.warning;
-    }
-  }
-
-  String _statusLabel(SupplierStatus s) {
-    switch (s) {
-      case SupplierStatus.active:
-        return 'Active';
-      case SupplierStatus.inactive:
-        return 'Inactive';
-      case SupplierStatus.onHold:
-        return 'On Hold';
     }
   }
 
@@ -247,9 +214,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
   }
 
   Widget _buildHeader() {
-    final active = _suppliers
-        .where((s) => s.status == SupplierStatus.active)
-        .length;
     final totalValue = _suppliers.fold<double>(
       0,
       (s, sup) => s + sup.totalOrders,
@@ -316,15 +280,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
                   '${_suppliers.length}',
                   Icons.business_rounded,
                   AppTheme.primary,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildStatCard(
-                  'Active',
-                  '$active',
-                  Icons.check_circle_rounded,
-                  AppTheme.success,
                 ),
               ),
               const SizedBox(width: 10),
@@ -469,7 +424,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
   }
 
   Widget _buildSupplierCard(Supplier supplier) {
-    final statusColor = _statusColor(supplier.status);
     return GestureDetector(
       onTap: () => _showSupplierDetail(supplier),
       child: ClipRRect(
@@ -529,27 +483,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
                                 color: const Color(0xFF1A1C2B),
                               ),
                               overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: statusColor.withAlpha(20),
-                              borderRadius: BorderRadius.circular(10.0),
-                              border: Border.all(
-                                color: AppTheme.outlineVariant,
-                              ),
-                            ),
-                            child: Text(
-                              _statusLabel(supplier.status),
-                              style: GoogleFonts.dmSans(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: statusColor,
-                              ),
                             ),
                           ),
                         ],
@@ -756,7 +689,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
                       category: categoryCtrl.text.isEmpty
                           ? 'General'
                           : categoryCtrl.text,
-                      status: SupplierStatus.active,
                       totalOrders: 0,
                       orderCount: 0,
                       rating: 4.0,

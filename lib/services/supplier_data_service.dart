@@ -20,7 +20,6 @@ class SupplierDataService {
         phone: '+1 (555) 100-2000',
         address: '100 Industrial Way, Chicago, IL 60601',
         category: 'Power Tools',
-        status: SupplierStatus.active,
         totalOrders: 125400.00,
         orderCount: 28,
         rating: 4.8,
@@ -35,7 +34,6 @@ class SupplierDataService {
         phone: '+1 (555) 200-3000',
         address: '200 Commerce Blvd, Detroit, MI 48201',
         category: 'Hand Tools',
-        status: SupplierStatus.active,
         totalOrders: 67800.50,
         orderCount: 19,
         rating: 4.5,
@@ -50,7 +48,6 @@ class SupplierDataService {
         phone: '+1 (555) 300-4000',
         address: '300 Safety Pkwy, Cleveland, OH 44101',
         category: 'Safety Equipment',
-        status: SupplierStatus.active,
         totalOrders: 34200.00,
         orderCount: 12,
         rating: 4.2,
@@ -65,7 +62,6 @@ class SupplierDataService {
         phone: '+1 (555) 400-5000',
         address: '400 Tech Drive, Columbus, OH 43201',
         category: 'Measuring Tools',
-        status: SupplierStatus.onHold,
         totalOrders: 18900.00,
         orderCount: 8,
         rating: 3.8,
@@ -80,7 +76,6 @@ class SupplierDataService {
         phone: '+1 (555) 500-6000',
         address: '500 Logistics Ave, Indianapolis, IN 46201',
         category: 'General Hardware',
-        status: SupplierStatus.inactive,
         totalOrders: 5600.00,
         orderCount: 4,
         rating: 3.2,
@@ -99,11 +94,6 @@ class SupplierDataService {
       'phone': supplier.phone,
       'address': supplier.address,
       'category': supplier.category,
-      'status': supplier.status == SupplierStatus.active
-          ? 'active'
-          : supplier.status == SupplierStatus.inactive
-          ? 'inactive'
-          : 'onHold',
       'totalOrders': supplier.totalOrders,
       'orderCount': supplier.orderCount,
       'rating': supplier.rating,
@@ -121,26 +111,12 @@ class SupplierDataService {
       phone: map['phone'] as String,
       address: map['address'] as String,
       category: map['category'] as String,
-      status: _statusFromString(map['status'] as String),
       totalOrders: (map['totalOrders'] as num).toDouble(),
       orderCount: map['orderCount'] as int,
       rating: (map['rating'] as num).toDouble(),
       leadTimeDays: map['leadTimeDays'] as int,
       notes: map['notes'] as String? ?? '',
     );
-  }
-
-  static SupplierStatus _statusFromString(String status) {
-    switch (status) {
-      case 'active':
-        return SupplierStatus.active;
-      case 'inactive':
-        return SupplierStatus.inactive;
-      case 'onHold':
-        return SupplierStatus.onHold;
-      default:
-        return SupplierStatus.active;
-    }
   }
 
   static Future<void> saveSuppliers(List<Supplier> suppliers) async {
