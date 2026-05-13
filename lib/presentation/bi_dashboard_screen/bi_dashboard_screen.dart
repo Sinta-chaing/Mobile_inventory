@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 
 import '../../routes/app_routes.dart';
+import '../../services/order_service.dart';
+import '../../services/inventory_service.dart';
+import '../../services/customer_data_service.dart';
+import '../../services/supplier_data_service.dart';
 import '../../theme/app_theme.dart';
+
 import '../../widgets/app_navigation.dart';
 import '../purchase_screen/purchase_screen.dart';
 import '../supplier_screen/supplier_screen.dart';
@@ -40,255 +45,45 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
   late List<Supplier> _suppliers;
   late List<StockItem> _stockItems;
 
+  // Refresh state
+  late DateTime _lastUpdated;
+  bool _isRefreshing = false;
+  bool _isLoading = true;
+
   @override
   void initState() {
     super.initState();
-    _initializeData();
+    _lastUpdated = DateTime.now();
+    _loadData();
   }
 
-  void _initializeData() {
-    // Initialize orders from purchase screen data
-    _orders = [
-      Order(
-        orderId: 'ORD-2024-001',
-        createdDate: DateTime.now().subtract(const Duration(days: 5)),
-        customerName: 'John Doe',
-        customerPhone: '+855 12 345 678',
-        paymentMethod: PaymentMethod.khqr,
-        total: 2999.80,
-        status: OrderStatus.paid,
-        paidAt: DateTime.now().subtract(const Duration(days: 4)),
-        createdBy: 'Admin User',
-        items: [
-          OrderItem(
-            itemName: 'DeWalt 20V Cordless Drill',
-            quantity: 20,
-            unitPrice: 149.99,
-          ),
-        ],
-      ),
-      Order(
-        orderId: 'ORD-2024-002',
-        createdDate: DateTime.now().subtract(const Duration(days: 2)),
-        customerName: 'Jane Smith',
-        customerPhone: '+855 98 765 432',
-        paymentMethod: PaymentMethod.cash,
-        total: 799.70,
-        status: OrderStatus.pending,
-        paidAt: null,
-        createdBy: 'Staff Member',
-        items: [
-          OrderItem(
-            itemName: 'Stanley FatMax Tape Measure 25ft',
-            quantity: 30,
-            unitPrice: 24.99,
-          ),
-          OrderItem(
-            itemName: 'Makita Angle Grinder 4.5"',
-            quantity: 5,
-            unitPrice: 99.95,
-          ),
-        ],
-      ),
-      Order(
-        orderId: 'ORD-2024-003',
-        createdDate: DateTime.now().subtract(const Duration(hours: 3)),
-        customerName: 'Mike Johnson',
-        customerPhone: '+855 77 123 456',
-        paymentMethod: PaymentMethod.khqr,
-        total: 699.50,
-        status: OrderStatus.paid,
-        paidAt: DateTime.now().subtract(const Duration(hours: 2)),
-        createdBy: 'Admin User',
-        items: [
-          OrderItem(
-            itemName: '3M Safety Glasses',
-            quantity: 100,
-            unitPrice: 2.50,
-          ),
-          OrderItem(itemName: 'Work Gloves', quantity: 50, unitPrice: 8.99),
-        ],
-      ),
-    ];
+  Future<void> _loadData() async {
+    try {
+      final orders = await OrderService.loadOrders();
+      final inventory = await InventoryService.loadInventory();
+      final customersData = await CustomerDataService.loadCustomers();
+      final suppliers = await SupplierDataService.loadSuppliers();
 
-    // Initialize customers from purchase screen
-    _customers = [
-      Customer(id: 'C001', name: 'John Doe', phone: '+855 12 345 678'),
-      Customer(id: 'C002', name: 'Jane Smith', phone: '+855 98 765 432'),
-      Customer(id: 'C003', name: 'Mike Johnson', phone: '+855 77 123 456'),
-      Customer(id: 'C004', name: 'Sarah Williams', phone: '+855 55 987 654'),
-      Customer(id: 'C005', name: 'David Brown', phone: '+855 66 432 109'),
-    ];
-
-    // Initialize suppliers from supplier screen
-    _suppliers = [
-      Supplier(
-        id: 'S001',
-        name: 'ProTools Supply Co.',
-        contactPerson: 'James Wilson',
-        email: 'sales@protools.com',
-        phone: '+1 (555) 100-2000',
-        address: '100 Industrial Way, Chicago, IL 60601',
-        category: 'Power Tools',
-        status: SupplierStatus.active,
-        totalOrders: 125400.00,
-        orderCount: 28,
-        rating: 4.8,
-        leadTimeDays: 5,
-        notes: 'Preferred supplier for power tools',
-      ),
-      Supplier(
-        id: 'S002',
-        name: 'Meridian Hardware Dist.',
-        contactPerson: 'Patricia Lee',
-        email: 'orders@meridian.com',
-        phone: '+1 (555) 200-3000',
-        address: '200 Commerce Blvd, Detroit, MI 48201',
-        category: 'Hand Tools',
-        status: SupplierStatus.active,
-        totalOrders: 67800.50,
-        orderCount: 19,
-        rating: 4.5,
-        leadTimeDays: 7,
-        notes: '',
-      ),
-      Supplier(
-        id: 'S003',
-        name: 'SafeGuard Industrial',
-        contactPerson: 'Thomas Brown',
-        email: 'supply@safeguard.com',
-        phone: '+1 (555) 300-4000',
-        address: '300 Safety Pkwy, Cleveland, OH 44101',
-        category: 'Safety Equipment',
-        status: SupplierStatus.active,
-        totalOrders: 34200.00,
-        orderCount: 12,
-        rating: 4.2,
-        leadTimeDays: 10,
-        notes: 'Certified safety equipment supplier',
-      ),
-      Supplier(
-        id: 'S004',
-        name: 'TechMeasure Solutions',
-        contactPerson: 'Angela Davis',
-        email: 'info@techmeasure.com',
-        phone: '+1 (555) 400-5000',
-        address: '400 Tech Drive, Columbus, OH 43201',
-        category: 'Measuring Tools',
-        status: SupplierStatus.onHold,
-        totalOrders: 18900.00,
-        orderCount: 8,
-        rating: 3.8,
-        leadTimeDays: 14,
-        notes: 'On hold pending contract renewal',
-      ),
-      Supplier(
-        id: 'S005',
-        name: 'FastFix Distributors',
-        contactPerson: 'Michael Scott',
-        email: 'orders@fastfix.com',
-        phone: '+1 (555) 500-6000',
-        address: '500 Logistics Ave, Indianapolis, IN 46201',
-        category: 'General Hardware',
-        status: SupplierStatus.inactive,
-        totalOrders: 5600.00,
-        orderCount: 4,
-        rating: 3.2,
-        leadTimeDays: 21,
-        notes: 'Inactive - poor delivery performance',
-      ),
-    ];
-
-    // Initialize stock items from inventory screen
-    _stockItems = [
-      StockItem(
-        id: 'ITM001',
-        name: 'DeWalt 20V Cordless Drill',
-        sku: 'DW-DCD771C2',
-        category: 'Power Tools',
-        quantity: 34,
-        reorderLevel: 10,
-        unitCost: 89.50,
-        unitPrice: 149.99,
-        supplierName: 'ProTools Supply Co.',
-        imageUrl:
-            'https://images.unsplash.com/photo-1572981779307-38b8cabb2407',
-        semanticLabel:
-            'Yellow and black DeWalt cordless drill on white background',
-      ),
-      StockItem(
-        id: 'ITM002',
-        name: 'Stanley FatMax Tape Measure 25ft',
-        sku: 'ST-FMHT33865',
-        category: 'Hand Tools',
-        quantity: 7,
-        reorderLevel: 15,
-        unitCost: 12.40,
-        unitPrice: 24.99,
-        supplierName: 'Meridian Hardware Dist.',
-        imageUrl:
-            'https://images.unsplash.com/photo-1706101426222-feb156e9c7fe',
-        semanticLabel: 'Yellow Stanley tape measure coiled on wooden surface',
-      ),
-      StockItem(
-        id: 'ITM003',
-        name: 'Makita Angle Grinder 4.5"',
-        sku: 'MK-9557PBX1',
-        category: 'Power Tools',
-        quantity: 0,
-        reorderLevel: 5,
-        unitCost: 54.00,
-        unitPrice: 99.95,
-        supplierName: 'ProTools Supply Co.',
-        imageUrl:
-            'https://img.rocket.new/generatedImages/rocket_gen_img_1da2285a0-1773143783458.png',
-        semanticLabel:
-            'Teal and black Makita angle grinder on concrete surface',
-      ),
-      StockItem(
-        id: 'ITM004',
-        name: 'Bosch 18V Circular Saw',
-        sku: 'BS-CCS180B',
-        category: 'Power Tools',
-        quantity: 18,
-        reorderLevel: 8,
-        unitCost: 112.00,
-        unitPrice: 199.99,
-        supplierName: 'ProTools Supply Co.',
-        imageUrl:
-            'https://images.unsplash.com/photo-1587210019033-d2c0cf35fde2',
-        semanticLabel:
-            'Blue Bosch circular saw with black base on wooden surface',
-      ),
-      StockItem(
-        id: 'ITM005',
-        name: '3M Safety Glasses',
-        sku: '3M-90966-80025',
-        category: 'Safety Equipment',
-        quantity: 200,
-        reorderLevel: 50,
-        unitCost: 1.20,
-        unitPrice: 2.50,
-        supplierName: 'SafeGuard Industrial',
-        imageUrl:
-            'https://images.unsplash.com/photo-1572981779307-38b8cabb2407',
-        semanticLabel: 'Clear 3M safety glasses on white background',
-      ),
-      StockItem(
-        id: 'ITM006',
-        name: 'Work Gloves',
-        sku: 'WG-LEATHER-LG',
-        category: 'Safety Equipment',
-        quantity: 150,
-        reorderLevel: 30,
-        unitCost: 3.50,
-        unitPrice: 8.99,
-        supplierName: 'SafeGuard Industrial',
-        imageUrl:
-            'https://images.unsplash.com/photo-1572981779307-38b8cabb2407',
-        semanticLabel: 'Brown leather work gloves on white background',
-      ),
-    ];
+      if (mounted) {
+        setState(() {
+          _orders = orders;
+          _stockItems = inventory;
+          // Convert CustomerData to Customer for compatibility with BI widgets
+          _customers = customersData
+              .map((c) => Customer(id: c.id, name: c.name, phone: c.phone))
+              .toList();
+          _suppliers = suppliers;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading BI data: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   void _onNavTap(int index) {
@@ -310,10 +105,31 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
     }
   }
 
+  void _refreshDashboard() async {
+    setState(() {
+      _isRefreshing = true;
+    });
+
+    // Reload data from all services
+    await _loadData();
+
+    setState(() {
+      _lastUpdated = DateTime.now();
+      _isRefreshing = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final isTablet = size.width >= 600;
+
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: AppTheme.background,
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -360,13 +176,16 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
             selectedPeriod: _selectedPeriod,
             periods: _periods,
             onPeriodChanged: (p) => setState(() => _selectedPeriod = p),
+            onRefresh: _refreshDashboard,
+            lastUpdated: _lastUpdated,
+            isRefreshing: _isRefreshing,
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 16)),
-        const SliverToBoxAdapter(
+        SliverToBoxAdapter(
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: BIKpiGridWidget(),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: BIKpiGridWidget(orders: _orders, inventory: _stockItems),
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 16)),
@@ -432,10 +251,10 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 16)),
-        const SliverToBoxAdapter(
+        SliverToBoxAdapter(
           child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: BILowStockAlertsWidget(),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: BILowStockAlertsWidget(inventory: _stockItems),
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
@@ -459,13 +278,20 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
                   selectedPeriod: _selectedPeriod,
                   periods: _periods,
                   onPeriodChanged: (p) => setState(() => _selectedPeriod = p),
+                  onRefresh: _refreshDashboard,
+                  lastUpdated: _lastUpdated,
+                  isRefreshing: _isRefreshing,
                 ),
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 20)),
-              const SliverToBoxAdapter(
+              SliverToBoxAdapter(
                 child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 24),
-                  child: BIKpiGridWidget(isTablet: true),
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: BIKpiGridWidget(
+                    isTablet: true,
+                    orders: _orders,
+                    inventory: _stockItems,
+                  ),
                 ),
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 20)),
@@ -533,7 +359,9 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
                         ),
                       ),
                       const SizedBox(width: 16),
-                      Expanded(child: BILowStockAlertsWidget()),
+                      Expanded(
+                        child: BILowStockAlertsWidget(inventory: _stockItems),
+                      ),
                     ],
                   ),
                 ),

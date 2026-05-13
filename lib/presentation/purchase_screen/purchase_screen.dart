@@ -4,10 +4,14 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 import '../../routes/app_routes.dart';
+import '../../services/order_service.dart';
+import '../../services/inventory_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/invoice_pdf_generator.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
+import 'package:khqr_sdk/khqr_sdk.dart';
+import 'package:khqr_widget/khqr_widget.dart';
 import '../inventory_screen/inventory_screen.dart';
 
 enum PaymentMethod { cash, khqr }
@@ -41,6 +45,7 @@ class Order {
   DateTime? paidAt;
   final String createdBy;
   final List<OrderItem> items;
+  String? khqrCode; // KHQR code generated when payment method is KHQR
 
   Order({
     required this.orderId,
@@ -53,6 +58,7 @@ class Order {
     this.paidAt,
     required this.createdBy,
     required this.items,
+    this.khqrCode,
   });
 }
 
@@ -84,6 +90,7 @@ class PurchaseScreen extends StatefulWidget {
 class _PurchaseScreenState extends State<PurchaseScreen> {
   int _selectedNavIndex = 1;
   String _searchQuery = '';
+  bool _isLoading = true;
 
   // Mock customer data
   final List<Customer> _customers = [
@@ -112,68 +119,146 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     Product(id: 'P006', name: 'Work Gloves', sellingPrice: 8.99),
   ];
 
-  final List<Order> _orders = [
-    Order(
-      orderId: 'ORD-2024-001',
-      createdDate: DateTime.now().subtract(const Duration(days: 5)),
-      customerName: 'John Doe',
-      customerPhone: '+855 12 345 678',
-      paymentMethod: PaymentMethod.khqr,
-      total: 2999.80,
-      status: OrderStatus.paid,
-      paidAt: DateTime.now().subtract(const Duration(days: 4)),
-      createdBy: 'Admin User',
-      items: [
-        OrderItem(
-          itemName: 'DeWalt 20V Cordless Drill',
-          quantity: 20,
-          unitPrice: 149.99,
-        ),
-      ],
-    ),
-    Order(
-      orderId: 'ORD-2024-002',
-      createdDate: DateTime.now().subtract(const Duration(days: 2)),
-      customerName: 'Jane Smith',
-      customerPhone: '+855 98 765 432',
-      paymentMethod: PaymentMethod.cash,
-      total: 799.70,
-      status: OrderStatus.pending,
-      paidAt: null,
-      createdBy: 'Staff Member',
-      items: [
-        OrderItem(
-          itemName: 'Stanley FatMax Tape Measure 25ft',
-          quantity: 30,
-          unitPrice: 24.99,
-        ),
-        OrderItem(
-          itemName: 'Makita Angle Grinder 4.5"',
-          quantity: 5,
-          unitPrice: 99.95,
-        ),
-      ],
-    ),
-    Order(
-      orderId: 'ORD-2024-003',
-      createdDate: DateTime.now().subtract(const Duration(hours: 3)),
-      customerName: 'Mike Johnson',
-      customerPhone: '+855 77 123 456',
-      paymentMethod: PaymentMethod.khqr,
-      total: 699.50,
-      status: OrderStatus.paid,
-      paidAt: DateTime.now().subtract(const Duration(hours: 2)),
-      createdBy: 'Admin User',
-      items: [
-        OrderItem(
-          itemName: '3M Safety Glasses',
-          quantity: 100,
-          unitPrice: 2.50,
-        ),
-        OrderItem(itemName: 'Work Gloves', quantity: 50, unitPrice: 8.99),
-      ],
-    ),
-  ];
+  late List<Order> _orders = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOrders();
+  }
+
+  Future<void> _loadOrders() async {
+    try {
+      final loadedOrders = await OrderService.loadOrders();
+      print('🔄 Purchase screen loaded ${loadedOrders.length} orders');
+      setState(() {
+        _orders = loadedOrders;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('❌ Error loading orders in purchase screen: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _saveOrders() async {
+    try {
+      await OrderService.saveOrders(_orders);
+      print('💾 Purchase screen saved ${_orders.length} orders');
+    } catch (e) {
+      print('❌ Error saving orders: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> _checkInventorySufficiency(
+    List<OrderItem> items,
+  ) async {
+    try {
+      final inventory = await InventoryService.loadInventory();
+      final insufficientItems = <String>[];
+
+      for (var orderItem in items) {
+        final stockItem = inventory.firstWhere(
+          (s) => s.name.toLowerCase() == orderItem.itemName.toLowerCase(),
+          orElse: () => StockItem(
+            id: '',
+            name: orderItem.itemName,
+            sku: '',
+            category: '',
+            quantity: 0,
+            reorderLevel: 0,
+            unitCost: 0.0,
+            unitPrice: 0.0,
+            supplierName: '',
+            imageUrl: '',
+            semanticLabel: '',
+          ),
+        );
+
+        if (stockItem.quantity < orderItem.quantity) {
+          insufficientItems.add(
+            '${orderItem.itemName} (Available: ${stockItem.quantity}, Required: ${orderItem.quantity})',
+          );
+        }
+      }
+
+      return {
+        'sufficient': insufficientItems.isEmpty,
+        'insufficientItems': insufficientItems,
+      };
+    } catch (e) {
+      print('Error checking inventory: $e');
+      return {'sufficient': true, 'insufficientItems': []};
+    }
+  }
+
+  Future<void> _deductInventory(List<OrderItem> items) async {
+    try {
+      final inventory = await InventoryService.loadInventory();
+
+      for (var orderItem in items) {
+        final stockItemIndex = inventory.indexWhere(
+          (s) => s.name.toLowerCase() == orderItem.itemName.toLowerCase(),
+        );
+
+        if (stockItemIndex != -1) {
+          inventory[stockItemIndex].quantity -= orderItem.quantity;
+          if (inventory[stockItemIndex].quantity < 0) {
+            inventory[stockItemIndex].quantity = 0;
+          }
+        }
+      }
+
+      await InventoryService.saveInventory(inventory);
+    } catch (e) {
+      print('Error deducting inventory: $e');
+    }
+  }
+
+  String _generateNextOrderId() {
+    int maxNumber = 0;
+    for (var order in _orders) {
+      try {
+        final numStr = order.orderId.replaceAll(RegExp(r'[^0-9]'), '');
+        if (numStr.isNotEmpty) {
+          final num = int.parse(numStr);
+          if (num > maxNumber) {
+            maxNumber = num;
+          }
+        }
+      } catch (e) {
+        // Skip parsing errors
+      }
+    }
+    return 'ORD-2024-${(maxNumber + 1).toString().padLeft(3, '0')}';
+  }
+
+  String? _generateKhqrCode(double amountInUsd) {
+    try {
+      // Expire in 10 hours from now
+      final expire = DateTime.now().millisecondsSinceEpoch + (10 * 3600000);
+
+      // Create merchant info
+      final info = MerchantInfo(
+        bakongAccountId: 'oun_mengheang@aclb',
+        acquiringBank: 'ACLEDA Bank',
+        merchantId: 'TEMP001',
+        merchantName: 'InvenTrack Store',
+        currency: KhqrCurrency.usd,
+        amount: amountInUsd,
+        expirationTimestamp: expire,
+      );
+
+      // Generate KHQR
+      final res = KhqrSdk.generateMerchant(info);
+      return res.data?.qr;
+    } catch (e) {
+      print('Error generating KHQR code: $e');
+      return null;
+    }
+  }
 
   List<Order> get _filteredOrders {
     return _orders.where((o) {
@@ -209,13 +294,15 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            _buildSearchBar(),
-            Expanded(child: _buildOrderList()),
-          ],
-        ),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  _buildHeader(),
+                  _buildSearchBar(),
+                  Expanded(child: _buildOrderList()),
+                ],
+              ),
       ),
       bottomNavigationBar: _buildGlassNavBar(),
       floatingActionButton: _buildFAB(),
@@ -257,7 +344,6 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     final pendingOrders = _orders
         .where((o) => o.status == OrderStatus.pending)
         .length;
-    final totalRevenue = _orders.fold<double>(0, (sum, o) => sum + o.total);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
@@ -708,6 +794,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                     order.status = OrderStatus.paid;
                     order.paidAt = DateTime.now();
                   });
+                  _saveOrders();
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Order marked as paid'),
@@ -750,17 +837,26 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
           setState(() {
             order.status = OrderStatus.paid;
           });
+          _saveOrders();
           Navigator.pop(context);
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Order marked as paid')));
         },
         onDelete: () {
+          // Remove the order from the list
           setState(() => _orders.remove(order));
+          // Save the updated orders
+          _saveOrders();
+          // Close the bottom sheet
           Navigator.pop(context);
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Order deleted')));
+          // Show success message
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Order deleted successfully'),
+              duration: Duration(seconds: 2),
+            ),
+          );
         },
       ),
     );
@@ -1368,7 +1464,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                       ),
                       const SizedBox(width: 8),
                       FilledButton(
-                        onPressed: () {
+                        onPressed: () async {
                           // Validation
                           if (selectedCustomer == null) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -1387,14 +1483,72 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                             return;
                           }
 
+                          // Check inventory availability
+                          final inventoryCheck =
+                              await _checkInventorySufficiency(addedItems);
+
+                          if (!inventoryCheck['sufficient']) {
+                            final insufficientItems =
+                                inventoryCheck['insufficientItems']
+                                    as List<String>;
+                            showDialog(
+                              context: context,
+                              builder: (dialogContext) => AlertDialog(
+                                title: const Text('Insufficient Inventory'),
+                                icon: const Icon(
+                                  Icons.warning_rounded,
+                                  color: Colors.red,
+                                  size: 32,
+                                ),
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'The following items do not have sufficient inventory:',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    ...insufficientItems.map(
+                                      (item) => Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 4,
+                                        ),
+                                        child: Text(
+                                          '• $item',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(dialogContext),
+                                    child: const Text('OK'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            return;
+                          }
+
                           final total = _calculateInvoiceTotal(addedItems);
+
+                          // Generate KHQR code if KHQR payment method is selected
+                          String? khqrCode;
+                          if (selectedPayment == PaymentMethod.khqr) {
+                            khqrCode = _generateKhqrCode(total);
+                          }
 
                           this.setState(() {
                             _orders.insert(
                               0,
                               Order(
-                                orderId:
-                                    'ORD-2024-${(_orders.length + 1).toString().padLeft(3, '0')}',
+                                orderId: _generateNextOrderId(),
                                 createdDate: DateTime.now(),
                                 customerName: selectedCustomer!.name,
                                 customerPhone: selectedCustomer!.phone,
@@ -1404,9 +1558,15 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                                 paidAt: null,
                                 createdBy: createdByController.text,
                                 items: addedItems,
+                                khqrCode: khqrCode,
                               ),
                             );
                           });
+                          await _saveOrders();
+
+                          // Deduct inventory after order is created
+                          await _deductInventory(addedItems);
+
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -1436,7 +1596,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   }
 }
 
-class _OrderDetailSheet extends StatelessWidget {
+class _OrderDetailSheet extends StatefulWidget {
   final Order order;
   final VoidCallback onMarkPaid;
   final VoidCallback onDelete;
@@ -1446,6 +1606,69 @@ class _OrderDetailSheet extends StatelessWidget {
     required this.onMarkPaid,
     required this.onDelete,
   });
+
+  @override
+  State<_OrderDetailSheet> createState() => _OrderDetailSheetState();
+}
+
+class _OrderDetailSheetState extends State<_OrderDetailSheet> {
+  bool _isCheckingPayment = false;
+
+  Order get order => widget.order;
+  VoidCallback get onMarkPaid => widget.onMarkPaid;
+  VoidCallback get onDelete => widget.onDelete;
+
+  Future<void> _checkPaymentStatus() async {
+    setState(() => _isCheckingPayment = true);
+
+    try {
+      // Call the OrderService to verify payment with payment gateway
+      final paymentVerified = await OrderService.verifyKhqrPayment(
+        order.orderId,
+        order.total,
+      );
+
+      if (!mounted) return;
+
+      if (paymentVerified) {
+        // Payment was verified - mark as paid
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Payment verified! Order marked as paid.'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        // Mark as paid
+        onMarkPaid();
+      } else {
+        // Payment not yet received
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              '❌ Payment not received yet. Please try again later.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error checking payment: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isCheckingPayment = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1678,6 +1901,59 @@ class _OrderDetailSheet extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
+                  // KHQR Payment Card - Display if payment method is KHQR and order is pending
+                  if (order.paymentMethod == PaymentMethod.khqr &&
+                      order.status == OrderStatus.pending &&
+                      order.khqrCode != null &&
+                      order.khqrCode!.isNotEmpty)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'KHQR Payment',
+                              style: GoogleFonts.dmSans(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            // Refresh button to check payment status
+                            if (_isCheckingPayment)
+                              const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    AppTheme.primary,
+                                  ),
+                                ),
+                              )
+                            else
+                              IconButton(
+                                icon: const Icon(Icons.refresh_rounded),
+                                onPressed: _checkPaymentStatus,
+                                tooltip: 'Check if payment received',
+                                color: AppTheme.primary,
+                                iconSize: 20,
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Center(
+                          child: KhqrWidget(
+                            width: 300,
+                            receiverName: 'Oun Mengheang',
+                            amount: order.total.toStringAsFixed(2),
+                            currency: 'USD',
+                            qr: order.khqrCode!,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+                    ),
                   // Items Section
                   Text(
                     'Order Items',
@@ -1827,7 +2103,6 @@ class _OrderDetailSheet extends StatelessWidget {
                     width: double.infinity,
                     child: OutlinedButton(
                       onPressed: () {
-                        Navigator.pop(context);
                         onDelete();
                       },
                       style: OutlinedButton.styleFrom(

@@ -90,7 +90,7 @@ class _SignUpLoginScreenState extends State<SignUpLoginScreen>
     if (email == 'manager@inventrack.io' && password == 'Track2024!') {
       Navigator.pushNamedAndRemoveUntil(
         context,
-        AppRoutes.inventoryScreen,
+        AppRoutes.biDashboardScreen,
         (route) => false,
       );
     } else {

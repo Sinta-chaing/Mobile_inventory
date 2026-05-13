@@ -11,7 +11,7 @@ import '../presentation/policy_screen/policy_screen.dart';
 import '../presentation/settings_screen/settings_screen.dart';
 
 class AppRoutes {
-  static const String initial = '/bi-dashboard-screen';
+  static const String initial = '/sign-up-login-screen';
   static const String signUpLoginScreen = '/sign-up-login-screen';
   static const String inventoryScreen = '/inventory-screen';
   static const String purchaseScreen = '/purchase-screen';
@@ -23,7 +23,7 @@ class AppRoutes {
   static const String settingsScreen = '/settings-screen';
 
   static Map<String, WidgetBuilder> routes = {
-    initial: (context) => const BIDashboardScreen(),
+    initial: (context) => const SignUpLoginScreen(),
     signUpLoginScreen: (context) => const SignUpLoginScreen(),
     inventoryScreen: (context) => const InventoryScreen(),
     purchaseScreen: (context) => const PurchaseScreen(),

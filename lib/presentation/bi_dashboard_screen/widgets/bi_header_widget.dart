@@ -7,12 +7,18 @@ class BIHeaderWidget extends StatelessWidget {
   final String selectedPeriod;
   final List<String> periods;
   final ValueChanged<String> onPeriodChanged;
+  final VoidCallback? onRefresh;
+  final DateTime? lastUpdated;
+  final bool isRefreshing;
 
   const BIHeaderWidget({
     super.key,
     required this.selectedPeriod,
     required this.periods,
     required this.onPeriodChanged,
+    this.onRefresh,
+    this.lastUpdated,
+    this.isRefreshing = false,
   });
 
   @override
@@ -38,7 +44,7 @@ class BIHeaderWidget extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'Last updated Apr 27, 2026 · 11:58 AM',
+                    'Last updated ${_formatDateTime(lastUpdated ?? DateTime.now())}',
                     style: GoogleFonts.ibmPlexSans(
                       fontSize: 11,
                       color: AppTheme.outline,
@@ -48,16 +54,27 @@ class BIHeaderWidget extends StatelessWidget {
               ),
               const Spacer(),
               IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.refresh_rounded),
+                onPressed: isRefreshing
+                    ? null
+                    : (onRefresh != null
+                          ? () {
+                              onRefresh!();
+                            }
+                          : null),
+                icon: isRefreshing
+                    ? SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppTheme.primary,
+                          ),
+                        ),
+                      )
+                    : const Icon(Icons.refresh_rounded),
                 color: AppTheme.primary,
-                tooltip: 'Refresh',
-              ),
-              IconButton(
-                onPressed: () {},
-                icon: const Icon(Icons.ios_share_outlined),
-                color: AppTheme.outline,
-                tooltip: 'Export Report',
+                tooltip: isRefreshing ? 'Refreshing...' : 'Refresh',
               ),
               const ProfileMenuWidget(),
             ],
@@ -103,5 +120,32 @@ class BIHeaderWidget extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final month = months[dateTime.month - 1];
+    final day = dateTime.day;
+    final year = dateTime.year;
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    final period = dateTime.hour >= 12 ? 'PM' : 'AM';
+    final displayHour = dateTime.hour > 12
+        ? dateTime.hour - 12
+        : (dateTime.hour == 0 ? 12 : dateTime.hour);
+
+    return '$month $day, $year · ${displayHour.toString().padLeft(2, '0')}:$minute $period';
   }
 }

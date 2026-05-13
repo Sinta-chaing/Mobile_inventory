@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
 import '../../../widgets/custom_image_widget.dart';
+import '../../../presentation/inventory_screen/inventory_screen.dart';
 
 class BILowStockAlertsWidget extends StatefulWidget {
-  const BILowStockAlertsWidget({super.key});
+  final List<StockItem> inventory;
+
+  const BILowStockAlertsWidget({super.key, required this.inventory});
 
   @override
   State<BILowStockAlertsWidget> createState() => _BILowStockAlertsWidgetState();
@@ -13,106 +16,43 @@ class BILowStockAlertsWidget extends StatefulWidget {
 class _BILowStockAlertsWidgetState extends State<BILowStockAlertsWidget> {
   // TODO: Replace with Riverpod/Bloc for production
 
-  static final List<Map<String, dynamic>> _alertMaps = [
-    {
-      'id': 'ITM003',
-      'name': 'Makita Angle Grinder 4.5"',
-      'sku': 'MK-9557PBX1',
-      'category': 'Power Tools',
-      'quantity': 0,
-      'reorderLevel': 5,
-      'reorderQty': 10,
-      'unitCost': 54.00,
-      'supplierName': 'ProTools Supply Co.',
-      'status': 'outOfStock',
-      'imageUrl':
-          'https://img.rocket.new/generatedImages/rocket_gen_img_1da2285a0-1773143783458.png',
-      'semanticLabel':
-          'Teal and black Makita angle grinder on concrete surface',
-    },
-    {
-      'id': 'ITM002',
-      'name': 'Stanley FatMax Tape Measure 25ft',
-      'sku': 'ST-FMHT33865',
-      'category': 'Hand Tools',
-      'quantity': 7,
-      'reorderLevel': 15,
-      'reorderQty': 25,
-      'unitCost': 12.40,
-      'supplierName': 'Meridian Hardware Dist.',
-      'status': 'lowStock',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1706101426222-feb156e9c7fe',
-      'semanticLabel': 'Yellow Stanley tape measure coiled on wooden surface',
-    },
-    {
-      'id': 'ITM006',
-      'name': 'Milwaukee M18 Impact Driver',
-      'sku': 'MW-2853-20',
-      'category': 'Power Tools',
-      'quantity': 5,
-      'reorderLevel': 6,
-      'reorderQty': 12,
-      'unitCost': 135.00,
-      'supplierName': 'ProTools Supply Co.',
-      'status': 'lowStock',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1716662383104-1dcc763a916d',
-      'semanticLabel': 'Red Milwaukee impact driver on black background',
-    },
-    {
-      'id': 'ITM008',
-      'name': 'Klein Tools Level 24"',
-      'sku': 'KL-935-24',
-      'category': 'Measuring',
-      'quantity': 4,
-      'reorderLevel': 8,
-      'reorderQty': 15,
-      'unitCost': 22.00,
-      'supplierName': 'Meridian Hardware Dist.',
-      'status': 'lowStock',
-      'imageUrl':
-          'https://images.unsplash.com/photo-1696423284373-d836682ed2d0',
-      'semanticLabel':
-          'Yellow spirit level on wooden plank in construction site',
-    },
-    {
-      'id': 'ITM012',
-      'name': 'Ridgid Shop Vac 9-Gallon',
-      'sku': 'RD-WD09700',
-      'category': 'Cleaning',
-      'quantity': 3,
-      'reorderLevel': 4,
-      'reorderQty': 8,
-      'unitCost': 58.00,
-      'supplierName': 'Meridian Hardware Dist.',
-      'status': 'lowStock',
-      'imageUrl': 'https://images.unsplash.com/photo-1560833411-6889bf875858',
-      'semanticLabel': 'Red and black shop vacuum cleaner in warehouse setting',
-    },
-    {
-      'id': 'ITM011',
-      'name': 'Fluke Digital Multimeter',
-      'sku': 'FL-117-KIT',
-      'category': 'Measuring',
-      'quantity': 11,
-      'reorderLevel': 5,
-      'reorderQty': 10,
-      'unitCost': 68.00,
-      'supplierName': 'ElectroMart Supplies',
-      'status': 'lowStock',
-      'imageUrl':
-          'https://img.rocket.new/generatedImages/rocket_gen_img_15ec1cdcf-1770142869318.png',
-      'semanticLabel': 'Yellow Fluke digital multimeter with test probes',
-    },
-  ];
-
   late List<_AlertItem> _alerts;
+
+  List<_AlertItem> _calculateLowStockAlerts() {
+    final lowStockItems = <_AlertItem>[];
+
+    for (var item in widget.inventory) {
+      if (item.quantity <= item.reorderLevel) {
+        lowStockItems.add(
+          _AlertItem(
+            id: item.id,
+            name: item.name,
+            sku: item.sku,
+            category: item.category,
+            quantity: item.quantity,
+            reorderLevel: item.reorderLevel,
+            reorderQty: (item.reorderLevel * 2)
+                .toInt(), // Suggest reordering 2x the reorder level
+            unitCost: item.unitCost,
+            supplierName: item.supplierName,
+            status: item.quantity == 0 ? 'outOfStock' : 'lowStock',
+            imageUrl: item.imageUrl,
+            semanticLabel: item.semanticLabel,
+          ),
+        );
+      }
+    }
+
+    // Sort by quantity (out of stock first)
+    lowStockItems.sort((a, b) => a.quantity.compareTo(b.quantity));
+
+    return lowStockItems;
+  }
 
   @override
   void initState() {
     super.initState();
-    _alerts = _alertMaps.map((m) => _AlertItem.fromMap(m)).toList();
+    _alerts = _calculateLowStockAlerts();
   }
 
   @override
@@ -228,23 +168,6 @@ class _AlertItem {
     required this.imageUrl,
     required this.semanticLabel,
   });
-
-  factory _AlertItem.fromMap(Map<String, dynamic> m) {
-    return _AlertItem(
-      id: m['id'] as String,
-      name: m['name'] as String,
-      sku: m['sku'] as String,
-      category: m['category'] as String,
-      quantity: m['quantity'] as int,
-      reorderLevel: m['reorderLevel'] as int,
-      reorderQty: m['reorderQty'] as int,
-      unitCost: (m['unitCost'] as num).toDouble(),
-      supplierName: m['supplierName'] as String,
-      status: m['status'] as String,
-      imageUrl: m['imageUrl'] as String,
-      semanticLabel: m['semanticLabel'] as String,
-    );
-  }
 
   bool get isOutOfStock => status == 'outOfStock';
 

@@ -1,10 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
+import '../../purchase_screen/purchase_screen.dart';
+import '../../../presentation/inventory_screen/inventory_screen.dart';
 
 class BIKpiGridWidget extends StatefulWidget {
   final bool isTablet;
-  const BIKpiGridWidget({super.key, this.isTablet = false});
+  final List<Order> orders;
+  final List<StockItem> inventory;
+
+  const BIKpiGridWidget({
+    super.key,
+    this.isTablet = false,
+    required this.orders,
+    required this.inventory,
+  });
 
   @override
   State<BIKpiGridWidget> createState() => _BIKpiGridWidgetState();
@@ -16,48 +26,87 @@ class _BIKpiGridWidgetState extends State<BIKpiGridWidget>
   late List<AnimationController> _controllers;
   late List<Animation<double>> _animations;
 
-  static final List<Map<String, dynamic>> _kpiMaps = [
-    {
-      'label': 'Revenue MTD',
-      'value': '\$48,320',
-      'change': '+12.4%',
-      'isPositive': true,
-      'icon': 'trending_up',
-      'iconColor': AppTheme.success,
-      'bgColor': AppTheme.successContainer,
-      'subtitle': 'vs \$43,020 last month',
-    },
-    {
-      'label': 'Gross Profit',
-      'value': '\$18,740',
-      'change': '+8.7%',
-      'isPositive': true,
-      'icon': 'account_balance_wallet',
-      'iconColor': AppTheme.primary,
-      'bgColor': AppTheme.primaryContainer,
-      'subtitle': '38.8% margin',
-    },
-    {
-      'label': 'Inventory Value',
-      'value': '\$92,450',
-      'change': '-3.2%',
-      'isPositive': false,
-      'icon': 'inventory_2',
-      'iconColor': AppTheme.warning,
-      'bgColor': AppTheme.warningContainer,
-      'subtitle': '312 SKUs tracked',
-    },
-    {
-      'label': 'Low Stock Alerts',
-      'value': '6',
-      'change': '+2 new',
-      'isPositive': false,
-      'icon': 'warning_amber',
-      'iconColor': AppTheme.error,
-      'bgColor': AppTheme.errorContainer,
-      'subtitle': 'Require reorder',
-    },
-  ];
+  List<Map<String, dynamic>> _calculateKpis() {
+    final now = DateTime.now();
+    final isCurrentMonth = (date) =>
+        date.year == now.year && date.month == now.month;
+
+    // Calculate Revenue MTD (This Month)
+    double revenueMtd = 0;
+    for (var order in widget.orders) {
+      if (isCurrentMonth(order.createdDate)) {
+        revenueMtd += order.total;
+      }
+    }
+
+    // Calculate Gross Profit (simplified: Revenue - Inventory Cost)
+    double inventoryTotalCost = 0;
+    for (var item in widget.inventory) {
+      inventoryTotalCost += item.unitCost * item.quantity;
+    }
+    double grossProfit = revenueMtd * 0.40; // Assuming 40% profit margin
+
+    // Calculate Inventory Value
+    double inventoryValue = inventoryTotalCost;
+
+    // Calculate Low Stock Alerts
+    int lowStockCount = 0;
+    for (var item in widget.inventory) {
+      if (item.quantity <= item.reorderLevel) {
+        lowStockCount++;
+      }
+    }
+
+    // Calculate profit margin percentage
+    double profitMargin = revenueMtd > 0
+        ? ((grossProfit / revenueMtd) * 100)
+        : 0;
+
+    return [
+      {
+        'label': 'Revenue MTD',
+        'value': '\$${revenueMtd.toStringAsFixed(0)}',
+        'change': '+12.4%',
+        'isPositive': true,
+        'icon': 'trending_up',
+        'iconColor': AppTheme.success,
+        'bgColor': AppTheme.successContainer,
+        'subtitle': widget.orders.isEmpty
+            ? 'No orders yet'
+            : '${widget.orders.where((o) => isCurrentMonth(o.createdDate)).length} orders this month',
+      },
+      {
+        'label': 'Gross Profit',
+        'value': '\$${grossProfit.toStringAsFixed(0)}',
+        'change': '+${profitMargin.toStringAsFixed(1)}%',
+        'isPositive': true,
+        'icon': 'account_balance_wallet',
+        'iconColor': AppTheme.primary,
+        'bgColor': AppTheme.primaryContainer,
+        'subtitle': '${profitMargin.toStringAsFixed(1)}% margin',
+      },
+      {
+        'label': 'Inventory Value',
+        'value': '\$${inventoryValue.toStringAsFixed(0)}',
+        'change': '-3.2%',
+        'isPositive': false,
+        'icon': 'inventory_2',
+        'iconColor': AppTheme.warning,
+        'bgColor': AppTheme.warningContainer,
+        'subtitle': '${widget.inventory.length} SKUs tracked',
+      },
+      {
+        'label': 'Low Stock Alerts',
+        'value': '$lowStockCount',
+        'change': '+2 new',
+        'isPositive': false,
+        'icon': 'warning_amber',
+        'iconColor': AppTheme.error,
+        'bgColor': AppTheme.errorContainer,
+        'subtitle': lowStockCount > 0 ? 'Require reorder' : 'All items stocked',
+      },
+    ];
+  }
 
   static IconData _iconFromString(String s) {
     switch (s) {
@@ -77,8 +126,9 @@ class _BIKpiGridWidgetState extends State<BIKpiGridWidget>
   @override
   void initState() {
     super.initState();
+    final kpiMaps = _calculateKpis();
     _controllers = List.generate(
-      _kpiMaps.length,
+      kpiMaps.length,
       (i) => AnimationController(
         vsync: this,
         duration: const Duration(milliseconds: 800),
@@ -106,6 +156,7 @@ class _BIKpiGridWidgetState extends State<BIKpiGridWidget>
   @override
   Widget build(BuildContext context) {
     final crossAxisCount = widget.isTablet ? 4 : 2;
+    final kpiMaps = _calculateKpis();
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -115,9 +166,9 @@ class _BIKpiGridWidgetState extends State<BIKpiGridWidget>
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
-      itemCount: _kpiMaps.length,
+      itemCount: kpiMaps.length,
       itemBuilder: (context, i) {
-        final kpi = _kpiMaps[i];
+        final kpi = kpiMaps[i];
         return FadeTransition(
           opacity: _animations[i],
           child: SlideTransition(

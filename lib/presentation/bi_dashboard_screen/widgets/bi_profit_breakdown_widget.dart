@@ -110,14 +110,6 @@ class _BIProfitBreakdownWidgetState extends State<BIProfitBreakdownWidget> {
     });
   }
 
-  void _goToPage(int page) {
-    if (page >= 1 && page <= _totalPages) {
-      setState(() {
-        _currentPage = page;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 600;
@@ -200,7 +192,7 @@ class _BIProfitBreakdownWidgetState extends State<BIProfitBreakdownWidget> {
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
-              'Showing ${(_currentPage - 1) * _itemsPerPage + 1}-${(_currentPage - 1) * _itemsPerPage + _currentItems.length} of ${_items.length} invoices',
+              'Showing ${(_currentPage - 1) * _itemsPerPage + 1}-${(_currentPage - 1) * _itemsPerPage + _currentItems.length} of ${_items.length} items',
               style: GoogleFonts.ibmPlexSans(
                 fontSize: 10,
                 color: AppTheme.outline,

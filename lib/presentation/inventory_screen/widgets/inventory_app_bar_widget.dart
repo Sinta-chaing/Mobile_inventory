@@ -6,11 +6,13 @@ import '../../../widgets/profile_menu_widget.dart';
 class InventoryAppBarWidget extends StatelessWidget {
   final int itemCount;
   final double totalValue;
+  final VoidCallback? onRefresh;
 
   const InventoryAppBarWidget({
     super.key,
     required this.itemCount,
     required this.totalValue,
+    this.onRefresh,
   });
 
   @override
@@ -43,6 +45,13 @@ class InventoryAppBarWidget extends StatelessWidget {
             ],
           ),
           const Spacer(),
+          if (onRefresh != null)
+            IconButton(
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh_rounded),
+              color: AppTheme.primary,
+              tooltip: 'Refresh Inventory',
+            ),
           const ProfileMenuWidget(),
         ],
       ),

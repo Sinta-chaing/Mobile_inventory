@@ -1,10 +1,20 @@
 import 'package:flutter/services.dart';
 
 import '../core/app_export.dart';
+import '../services/order_service.dart';
+import '../services/inventory_service.dart';
+import '../services/customer_data_service.dart';
+import '../services/supplier_data_service.dart';
 import '../widgets/custom_error_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize services for persistent storage
+  await OrderService.init();
+  await InventoryService.init();
+  await CustomerDataService.init();
+  await SupplierDataService.init();
 
   bool hasShownError = false;
 

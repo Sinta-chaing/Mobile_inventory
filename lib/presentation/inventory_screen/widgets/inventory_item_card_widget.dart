@@ -26,20 +26,8 @@ class InventoryItemCardWidget extends StatelessWidget {
     }
   }
 
-  Color get _leftBorderColor {
-    switch (item.status) {
-      case StockStatusEnum.inStock:
-        return AppTheme.stockIn;
-      case StockStatusEnum.lowStock:
-        return AppTheme.stockLow;
-      case StockStatusEnum.outOfStock:
-        return AppTheme.stockOut;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(

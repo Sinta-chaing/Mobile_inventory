@@ -142,7 +142,6 @@ class _BIRevenueChartWidgetState extends State<BIRevenueChartWidget>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final primary = AppTheme.primary;
     final secondary = AppTheme.secondary;
 
@@ -271,7 +270,6 @@ class _BIRevenueChartWidgetState extends State<BIRevenueChartWidget>
                         tooltipRoundedRadius: 8,
                         getTooltipItems: (spots) {
                           return spots.map((spot) {
-                            final idx = spot.x.toInt();
                             final label = spot.barIndex == 0
                                 ? 'Revenue'
                                 : 'COGS';
