@@ -45,6 +45,7 @@ class _BIProfitBreakdownWidgetState extends State<BIProfitBreakdownWidget> {
           (s) => s.name.toLowerCase() == item.itemName.toLowerCase(),
           orElse: () => StockItem(
             id: '',
+            inventoryId: '',
             name: item.itemName,
             sku: '',
             category: '',

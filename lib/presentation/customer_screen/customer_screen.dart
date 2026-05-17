@@ -6,6 +6,7 @@ import '../../routes/app_routes.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
+import '../../services/customer_data_service.dart';
 
 class Customer {
   final String id;
@@ -43,69 +44,44 @@ class CustomerScreen extends StatefulWidget {
 class _CustomerScreenState extends State<CustomerScreen> {
   int _selectedNavIndex = 2;
   String _searchQuery = '';
+  List<Customer> _customers = [];
+  bool _isLoading = true;
 
-  final List<Customer> _customers = [
-    Customer(
-      id: 'C001',
-      name: 'John Doe',
-      email: 'john.doe@example.com',
-      phone: '+855 12 345 678',
-      company: 'Construction Pro',
-      address: '123 Main St, Phnom Penh',
-      totalPurchases: 2999.80,
-      orderCount: 1,
-      joinDate: DateTime(2023, 6, 15),
-      notes: 'Regular customer',
-    ),
-    Customer(
-      id: 'C002',
-      name: 'Jane Smith',
-      email: 'jane.smith@example.com',
-      phone: '+855 98 765 432',
-      company: 'Build Right',
-      address: '456 Oak Ave, Siem Reap',
-      totalPurchases: 799.70,
-      orderCount: 1,
-      joinDate: DateTime(2023, 7, 20),
-      notes: '',
-    ),
-    Customer(
-      id: 'C003',
-      name: 'Mike Johnson',
-      email: 'mike.johnson@example.com',
-      phone: '+855 77 123 456',
-      company: 'Fix It Fast',
-      address: '789 Pine Rd, Battambang',
-      totalPurchases: 699.50,
-      orderCount: 1,
-      joinDate: DateTime(2023, 8, 10),
-      notes: 'Quick turnaround needed',
-    ),
-    Customer(
-      id: 'C004',
-      name: 'Sarah Williams',
-      email: 'sarah.williams@example.com',
-      phone: '+855 55 987 654',
-      company: 'Home Renovations',
-      address: '321 Elm St, Kompong Cham',
-      totalPurchases: 0.00,
-      orderCount: 0,
-      joinDate: DateTime(2024, 1, 5),
-      notes: 'New customer - no orders yet',
-    ),
-    Customer(
-      id: 'C005',
-      name: 'David Brown',
-      email: 'david.brown@example.com',
-      phone: '+855 66 432 109',
-      company: 'Tech Solutions',
-      address: '654 Birch Ln, Kandal',
-      totalPurchases: 0.00,
-      orderCount: 0,
-      joinDate: DateTime(2024, 2, 28),
-      notes: 'Prospect - follow up',
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadCustomers();
+  }
+
+  Future<void> _loadCustomers() async {
+    try {
+      final customerData = await CustomerDataService.fetchCustomersFromAPI();
+      // Convert CustomerData to Customer
+      final customers = customerData
+          .map((data) => Customer(
+                id: data.id,
+                name: data.name,
+                email: data.email,
+                phone: data.phone,
+                company: data.company,
+                address: data.company,
+                totalPurchases: 0.0,
+                orderCount: 0,
+                joinDate: DateTime.now(),
+                notes: '',
+              ))
+          .toList();
+      setState(() {
+        _customers = customers;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading customers: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   List<Customer> get _filteredCustomers {
     return _customers.where((c) {
@@ -395,6 +371,14 @@ class _CustomerScreenState extends State<CustomerScreen> {
   }
 
   Widget _buildCustomerList() {
+    if (_isLoading) {
+      return Center(
+        child: CircularProgressIndicator(
+          color: AppTheme.primary,
+        ),
+      );
+    }
+
     final customers = _filteredCustomers;
     if (customers.isEmpty) {
       return Center(

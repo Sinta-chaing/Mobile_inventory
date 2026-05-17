@@ -62,7 +62,7 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
       final orders = await OrderService.loadOrders();
       final inventory = await InventoryService.loadInventory();
       final customersData = await CustomerDataService.loadCustomers();
-      final suppliers = await SupplierDataService.loadSuppliers();
+      final suppliers = await SupplierDataService.fetchSuppliersFromAPI();
 
       if (mounted) {
         setState(() {

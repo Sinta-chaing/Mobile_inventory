@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
+import '../../../services/supplier_data_service.dart';
+import '../../../services/api_service.dart';
+import '../../../services/user_service.dart';
+import '../../../services/inventory_service.dart';
+import '../../../utils/rbac_helper.dart';
 import '../inventory_screen.dart';
 import '../../supplier_screen/supplier_screen.dart';
 
@@ -21,9 +26,9 @@ class InventoryItemFormWidget extends StatefulWidget {
 }
 
 class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
-  // TODO: Replace with Riverpod/Bloc for production
   final _formKey = GlobalKey<FormState>();
   bool _isSaving = false;
+  bool _canEdit = false; // Permission flag
 
   late TextEditingController _nameController;
   late TextEditingController _skuController;
@@ -37,101 +42,58 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
   final List<String> _categories = [
     'Power Tools',
     'Hand Tools',
-    'Safety',
-    'Measuring',
+    'Safety Equipment',
+    'Measuring Tools',
     'Cleaning',
     'Electrical',
     'Plumbing',
     'Other',
   ];
 
+  // Map subcategories to main categories
+  final Map<String, String> _subcategoryToCategory = {
+    'Drills': 'Power Tools',
+    'Saws': 'Power Tools',
+    'Sanders': 'Power Tools',
+    'Hammers': 'Hand Tools',
+    'Wrenches': 'Hand Tools',
+    'Screwdrivers': 'Hand Tools',
+    'Gloves': 'Safety Equipment',
+    'Eye Protection': 'Safety Equipment',
+    'Respirators': 'Safety Equipment',
+    'Tape Measures': 'Measuring Tools',
+    'Levels': 'Measuring Tools',
+    'Squares': 'Measuring Tools',
+    'Cables': 'Electrical',
+    'Connectors': 'Electrical',
+    'Batteries': 'Electrical',
+  };
+
+  /// Map subcategory name to main category
+  String _mapSubcategoryToCategory(String subcategoryName) {
+    return _subcategoryToCategory[subcategoryName] ?? 'Other';
+  }
+
   // Supplier data - initialize with empty list, will be populated in initState
   List<Supplier> _suppliers = [];
   List<Supplier> _filteredSuppliers = [];
   String? _selectedSupplierId;
   bool _showSupplierDropdown = false;
-
-  // Sample suppliers data - replace with API call in production
-  List<Supplier> _initializeSuppliers() {
-    return [
-      Supplier(
-        id: 'S001',
-        name: 'ProTools Supply Co.',
-        contactPerson: 'James Wilson',
-        email: 'sales@protools.com',
-        phone: '+1 (555) 100-2000',
-        address: '100 Industrial Way, Chicago, IL 60601',
-        category: 'Power Tools',
-        totalOrders: 125400.00,
-        orderCount: 28,
-        rating: 4.8,
-        leadTimeDays: 5,
-        notes: 'Preferred supplier for power tools',
-      ),
-      Supplier(
-        id: 'S002',
-        name: 'Meridian Hardware Dist.',
-        contactPerson: 'Patricia Lee',
-        email: 'orders@meridian.com',
-        phone: '+1 (555) 200-3000',
-        address: '200 Commerce Blvd, Detroit, MI 48201',
-        category: 'Hand Tools',
-        totalOrders: 67800.50,
-        orderCount: 19,
-        rating: 4.5,
-        leadTimeDays: 7,
-        notes: '',
-      ),
-      Supplier(
-        id: 'S003',
-        name: 'SafeGuard Industrial',
-        contactPerson: 'Thomas Brown',
-        email: 'supply@safeguard.com',
-        phone: '+1 (555) 300-4000',
-        address: '300 Safety Pkwy, Cleveland, OH 44101',
-        category: 'Safety Equipment',
-        totalOrders: 34200.00,
-        orderCount: 12,
-        rating: 4.2,
-        leadTimeDays: 10,
-        notes: 'Certified safety equipment supplier',
-      ),
-      Supplier(
-        id: 'S004',
-        name: 'TechMeasure Solutions',
-        contactPerson: 'Angela Davis',
-        email: 'info@techmeasure.com',
-        phone: '+1 (555) 400-5000',
-        address: '400 Tech Drive, Columbus, OH 43201',
-        category: 'Measuring Tools',
-        totalOrders: 18900.00,
-        orderCount: 8,
-        rating: 3.8,
-        leadTimeDays: 14,
-        notes: 'On hold pending contract renewal',
-      ),
-      Supplier(
-        id: 'S005',
-        name: 'FastFix Distributors',
-        contactPerson: 'Michael Scott',
-        email: 'orders@fastfix.com',
-        phone: '+1 (555) 500-6000',
-        address: '500 Logistics Ave, Indianapolis, IN 46201',
-        category: 'General Hardware',
-        totalOrders: 5600.00,
-        orderCount: 4,
-        rating: 3.2,
-        leadTimeDays: 21,
-        notes: 'Inactive - poor delivery performance',
-      ),
-    ];
-  }
+  bool _supplierMissing = false;
+  // Subcategory data
+  List<Map<String, dynamic>> _subcategories = [];
+  int? _selectedSubcategoryId;
 
   @override
   void initState() {
     super.initState();
-    _suppliers = _initializeSuppliers();
-    _filteredSuppliers = _suppliers;
+
+    // Check edit permissions
+    final rbacHelper = RbacHelper();
+    _canEdit = rbacHelper.canEditProducts();
+
+    _loadSuppliers();
+    _loadSubcategories();
 
     final item = widget.existingItem;
     _nameController = TextEditingController(text: item?.name ?? '');
@@ -150,28 +112,81 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
     );
     _supplierController = TextEditingController(text: item?.supplierName ?? '');
 
-    // Pre-select supplier if editing
-    if (item != null && item.supplierName.isNotEmpty) {
-      final supplier = _suppliers.firstWhere(
-        (s) => s.name == item.supplierName,
-        orElse: () => Supplier(
-          id: 'custom',
-          name: item.supplierName,
-          contactPerson: '',
-          email: '',
-          phone: '',
-          address: '',
-          category: '',
-          totalOrders: 0,
-          orderCount: 0,
-          rating: 0,
-          leadTimeDays: 0,
-        ),
-      );
-      _selectedSupplierId = supplier.id;
-    }
+    // NOTE: supplier list is loaded asynchronously in _loadSuppliers().
+    // Pre-selection is handled after suppliers are fetched to avoid
+    // searching an empty list here.
 
-    if (item != null) _selectedCategory = item.category;
+    // Pre-select category if editing (map subcategory to main category)
+    if (item != null) {
+      _selectedCategory = _mapSubcategoryToCategory(item.category);
+    }
+  }
+
+  Future<void> _loadSuppliers() async {
+    try {
+      final suppliers = await SupplierDataService.fetchSuppliersFromAPI();
+      setState(() {
+        _suppliers = suppliers;
+        _filteredSuppliers = suppliers;
+      });
+      // If editing an existing item, try to pre-select its supplier now
+      final item = widget.existingItem;
+      if (item != null && item.supplierName.isNotEmpty) {
+        final found = _suppliers
+            .where((s) => s.name == item.supplierName)
+            .toList();
+        if (found.isNotEmpty) {
+          final match = found.first;
+          setState(() {
+            _selectedSupplierId = match.id;
+            _supplierController.text = match.name;
+            _supplierMissing = false;
+          });
+        } else {
+          // Supplier name exists on item but not in API — mark as missing
+          setState(() {
+            _selectedSupplierId = null;
+            _supplierController.text = item.supplierName;
+            _supplierMissing = true;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading suppliers: $e');
+    }
+  }
+
+  Future<void> _loadSubcategories() async {
+    try {
+      final api = ApiService();
+      final data = await api.get<List<dynamic>>(
+        '/api/subcategories/',
+        fromJson: (json) => (json as List).map((e) => e).toList(),
+      );
+
+      setState(() {
+        _subcategories = data.map((s) => s as Map<String, dynamic>).toList();
+      });
+
+      // If editing an item, try to pre-select its subcategory
+      final item = widget.existingItem;
+      if (item != null && _selectedSubcategoryId == null) {
+        // Try to find subcategory by name
+        final match = _subcategories.firstWhere(
+          (sc) =>
+              (sc['name'] as String).toLowerCase() ==
+              item.category.toLowerCase(),
+          orElse: () => {},
+        );
+        if (match.isNotEmpty) {
+          setState(() {
+            _selectedSubcategoryId = match['subcategoryId'] as int?;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error loading subcategories: $e');
+    }
   }
 
   @override
@@ -195,7 +210,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
             .where(
               (s) =>
                   (s.name.toLowerCase().contains(query.toLowerCase()) ||
-                      s.category.toLowerCase().contains(query.toLowerCase())),
+                  s.category.toLowerCase().contains(query.toLowerCase())),
             )
             .toList();
       }
@@ -212,40 +227,132 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    // TODO: Replace with real API call for production
-    setState(() => _isSaving = true);
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
 
-    final isEdit = widget.existingItem != null;
-    final item = StockItem(
-      id:
-          widget.existingItem?.id ??
-          'ITM${DateTime.now().millisecondsSinceEpoch}',
-      name: _nameController.text.trim(),
-      sku: _skuController.text.trim().toUpperCase(),
-      category: _selectedCategory,
-      quantity: int.parse(_quantityController.text),
-      reorderLevel: int.parse(_reorderController.text),
-      unitCost: double.parse(_costController.text),
-      unitPrice: double.parse(_priceController.text),
-      supplierName: _supplierController.text.trim(),
-      imageUrl: widget.existingItem?.imageUrl ?? '',
-      semanticLabel: widget.existingItem?.semanticLabel ?? '',
-    );
-
-    widget.onSave(item);
-    Navigator.pop(context);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          isEdit
-              ? '${item.name} updated successfully'
-              : '${item.name} added to inventory',
+    // Check if user has permission to edit products
+    final rbacHelper = RbacHelper();
+    if (!rbacHelper.canEditProducts()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '⛔ Permission denied. Only managers and admins can edit products.',
+          ),
+          duration: Duration(seconds: 3),
         ),
-      ),
-    );
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final isEdit = widget.existingItem != null;
+      final item = StockItem(
+        id:
+            widget.existingItem?.id ??
+            'ITM${DateTime.now().millisecondsSinceEpoch}',
+        inventoryId: widget.existingItem?.inventoryId ?? '',
+        name: _nameController.text.trim(),
+        sku: _skuController.text.trim().toUpperCase(),
+        category: _selectedCategory,
+        quantity: int.parse(_quantityController.text),
+        reorderLevel: int.parse(_reorderController.text),
+        unitCost: double.parse(_costController.text),
+        unitPrice: double.parse(_priceController.text),
+        supplierName: _supplierController.text.trim(),
+        imageUrl: widget.existingItem?.imageUrl ?? '',
+        semanticLabel: widget.existingItem?.semanticLabel ?? '',
+      );
+
+      // Call API to update product
+      if (isEdit) {
+        // Update quantity through inventory endpoint using inventoryId
+        final success = await InventoryService.updateProductQuantity(
+          item.id,
+          item.inventoryId,
+          item.quantity,
+        );
+
+        if (!mounted) return;
+
+        if (success) {
+          widget.onSave(item);
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✓ ${item.name} updated successfully'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✗ Failed to update product. Please try again.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        // Create new product — include supplier (source) id when available
+        final Map<String, dynamic> payload = {
+          'name': item.name,
+          'sku': item.sku,
+          'category': item.category,
+          'unitCost': item.unitCost,
+          'unitPrice': item.unitPrice,
+          'quantity': item.quantity,
+          'reorderLevel': item.reorderLevel,
+          'supplierName': item.supplierName,
+        };
+
+        if (_selectedSupplierId != null &&
+            _selectedSupplierId != 'custom' &&
+            _selectedSupplierId!.isNotEmpty) {
+          final sid = int.tryParse(_selectedSupplierId!);
+          payload['source'] = sid ?? _selectedSupplierId;
+        }
+
+        final newProduct = await InventoryService.createProduct(payload);
+
+        if (!mounted) return;
+
+        if (newProduct != null) {
+          widget.onSave(newProduct);
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✓ ${item.name} added to inventory'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✗ Failed to create product. Please try again.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      print('Error saving product: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✗ Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   @override
@@ -454,13 +561,56 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
                     _buildSectionLabel('Supplier'),
                     const SizedBox(height: 10),
                     _buildSupplierSearchField(),
+                    const SizedBox(height: 12),
+                    _buildSectionLabel('Subcategory'),
+                    const SizedBox(height: 10),
+                    _buildSubcategoryField(),
                     const SizedBox(height: 28),
+
+                    // Permission warning (if no permission)
+                    if (!_canEdit)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange[50],
+                          border: Border.all(color: Colors.orange[300]!),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.lock_outline,
+                              color: Colors.orange[700],
+                              size: 20,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Only managers and admins can edit inventory',
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 12,
+                                  color: Colors.orange[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
                     // Save button
                     SizedBox(
                       width: double.infinity,
                       height: 50,
                       child: ElevatedButton(
-                        onPressed: _isSaving ? null : _save,
+                        onPressed: (_isSaving || !_canEdit) ? null : _save,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _canEdit
+                              ? AppTheme.primary
+                              : Colors.grey,
+                          disabledBackgroundColor: Colors.grey[300],
+                        ),
                         child: _isSaving
                             ? const SizedBox(
                                 width: 22,
@@ -471,10 +621,17 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
                                 ),
                               )
                             : Text(
-                                isEdit ? 'Save Changes' : 'Add to Inventory',
+                                _canEdit
+                                    ? (isEdit
+                                          ? 'Save Changes'
+                                          : 'Add to Inventory')
+                                    : 'No Permission',
                                 style: GoogleFonts.ibmPlexSans(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
+                                  color: _canEdit
+                                      ? Colors.white
+                                      : Colors.grey[600],
                                 ),
                               ),
                       ),
@@ -627,12 +784,58 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
               ),
               padding: const EdgeInsets.all(16),
               child: Text(
-                'No suppliers found. You can enter a custom supplier name.',
+                'No suppliers found in the backend. Please add the supplier in the Suppliers screen before selecting it here.',
                 style: GoogleFonts.ibmPlexSans(
                   fontSize: 12,
                   color: AppTheme.outline,
                   fontStyle: FontStyle.italic,
                 ),
+              ),
+            ),
+          ),
+
+        if (_supplierMissing)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'This supplier is not present in the backend. Open Suppliers and add it to link to a product.',
+              style: GoogleFonts.ibmPlexSans(
+                fontSize: 12,
+                color: Colors.orange[800],
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSubcategoryField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<int>(
+          value: _selectedSubcategoryId,
+          decoration: const InputDecoration(labelText: 'Subcategory *'),
+          items: _subcategories
+              .map(
+                (sc) => DropdownMenuItem<int>(
+                  value: sc['subcategoryId'] as int,
+                  child: Text(sc['name'] ?? ''),
+                ),
+              )
+              .toList(),
+          onChanged: (v) => setState(() => _selectedSubcategoryId = v),
+          validator: (v) => v == null ? 'Subcategory is required' : null,
+        ),
+        if (_subcategories.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Loading subcategories...',
+              style: GoogleFonts.ibmPlexSans(
+                fontSize: 12,
+                color: AppTheme.outline,
               ),
             ),
           ),

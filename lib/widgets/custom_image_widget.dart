@@ -20,7 +20,8 @@ enum ImageType { svg, png, network, file, unknown }
 
 // ignore_for_file: must_be_immutable
 class CustomImageWidget extends StatelessWidget {
-  const CustomImageWidget({super.key, 
+  const CustomImageWidget({
+    super.key,
     this.imageUrl,
     this.height,
     this.width,
@@ -105,7 +106,7 @@ class CustomImageWidget extends StatelessWidget {
   }
 
   Widget _buildImageView() {
-    if (imageUrl != null) {
+    if (imageUrl != null && imageUrl!.isNotEmpty) {
       switch (imageUrl!.imageType) {
         case ImageType.svg:
           return SizedBox(
@@ -171,6 +172,13 @@ class CustomImageWidget extends StatelessWidget {
           );
       }
     }
-    return SizedBox();
+    // Show placeholder when imageUrl is null or empty
+    return Image.asset(
+      placeHolder,
+      height: height,
+      width: width,
+      fit: fit ?? BoxFit.cover,
+      semanticLabel: semanticLabel,
+    );
   }
 }

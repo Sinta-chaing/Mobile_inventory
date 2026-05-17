@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../routes/app_routes.dart';
 import '../../services/order_service.dart';
 import '../../services/inventory_service.dart';
+import '../../services/customer_data_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/invoice_pdf_generator.dart';
 import '../../widgets/app_navigation.dart';
@@ -92,51 +93,52 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   String _searchQuery = '';
   bool _isLoading = true;
 
-  // Mock customer data
-  final List<Customer> _customers = [
-    Customer(id: 'C001', name: 'John Doe', phone: '+855 12 345 678'),
-    Customer(id: 'C002', name: 'Jane Smith', phone: '+855 98 765 432'),
-    Customer(id: 'C003', name: 'Mike Johnson', phone: '+855 77 123 456'),
-    Customer(id: 'C004', name: 'Sarah Williams', phone: '+855 55 987 654'),
-    Customer(id: 'C005', name: 'David Brown', phone: '+855 66 432 109'),
-  ];
-
-  // Product data - synchronized with inventory selling prices
-  final List<Product> _products = [
-    Product(
-      id: 'P001',
-      name: 'DeWalt 20V Cordless Drill',
-      sellingPrice: 149.99,
-    ),
-    Product(
-      id: 'P002',
-      name: 'Stanley FatMax Tape Measure 25ft',
-      sellingPrice: 24.99,
-    ),
-    Product(id: 'P003', name: 'Makita Angle Grinder 4.5"', sellingPrice: 99.95),
-    Product(id: 'P004', name: 'Bosch 18V Circular Saw', sellingPrice: 199.99),
-    Product(id: 'P005', name: '3M Safety Glasses', sellingPrice: 2.50),
-    Product(id: 'P006', name: 'Work Gloves', sellingPrice: 8.99),
-  ];
+  // Customer and product data loaded from API
+  List<Customer> _customers = [];
+  List<Product> _products = [];
 
   late List<Order> _orders = [];
 
   @override
   void initState() {
     super.initState();
-    _loadOrders();
+    _loadData();
   }
 
-  Future<void> _loadOrders() async {
+  Future<void> _loadData() async {
     try {
+      // Load customers from API
+      final customerData = await CustomerDataService.fetchCustomersFromAPI();
+      final customers = customerData
+          .map(
+            (data) => Customer(id: data.id, name: data.name, phone: data.phone),
+          )
+          .toList();
+
+      // Load products from inventory service
+      final inventory = await InventoryService.fetchProductsFromAPI();
+      final products = inventory
+          .map(
+            (stock) => Product(
+              id: stock.id,
+              name: stock.name,
+              sellingPrice: stock.unitPrice,
+            ),
+          )
+          .toList();
+
+      // Load orders
       final loadedOrders = await OrderService.loadOrders();
       print('🔄 Purchase screen loaded ${loadedOrders.length} orders');
+
       setState(() {
+        _customers = customers;
+        _products = products;
         _orders = loadedOrders;
         _isLoading = false;
       });
     } catch (e) {
-      print('❌ Error loading orders in purchase screen: $e');
+      print('❌ Error loading data in purchase screen: $e');
       setState(() {
         _isLoading = false;
       });
@@ -164,6 +166,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
           (s) => s.name.toLowerCase() == orderItem.itemName.toLowerCase(),
           orElse: () => StockItem(
             id: '',
+            inventoryId: '',
             name: orderItem.itemName,
             sku: '',
             category: '',

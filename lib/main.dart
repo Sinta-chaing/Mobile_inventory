@@ -5,6 +5,9 @@ import '../services/order_service.dart';
 import '../services/inventory_service.dart';
 import '../services/customer_data_service.dart';
 import '../services/supplier_data_service.dart';
+import '../services/user_service.dart';
+import '../services/api_service.dart';
+import '../utils/rbac_helper.dart';
 import '../widgets/custom_error_widget.dart';
 
 void main() async {
@@ -15,6 +18,18 @@ void main() async {
   await InventoryService.init();
   await CustomerDataService.init();
   await SupplierDataService.init();
+
+  // Initialize user service for role management
+  final userService = UserService();
+  await userService.init();
+
+  // Initialize API service
+  final apiService = ApiService();
+  await apiService.init();
+
+  // Initialize RBAC helper with callbacks
+  final rbacHelper = RbacHelper();
+  rbacHelper.init(userService: userService, apiService: apiService);
 
   bool hasShownError = false;
 

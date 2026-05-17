@@ -53,20 +53,25 @@ class AuthFormWidget extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
-          _buildLabel('Work Email'),
+          _buildLabel(isLogin ? 'Username' : 'Email'),
           const SizedBox(height: 6),
           TextFormField(
             controller: emailController,
             decoration: InputDecoration(
-              hintText: 'you@company.com',
-              prefixIcon: const Icon(Icons.mail_outline_rounded, size: 20),
+              hintText: isLogin ? 'Enter your username' : 'you@company.com',
+              prefixIcon: Icon(
+                isLogin ? Icons.person_outline_rounded : Icons.mail_outline_rounded,
+                size: 20,
+              ),
               prefixIconColor: AppTheme.outline,
             ),
-            keyboardType: TextInputType.emailAddress,
+            keyboardType: isLogin ? TextInputType.text : TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
             validator: (v) {
-              if (v == null || v.isEmpty) return 'Email is required';
-              if (!RegExp(r'^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(v)) {
+              if (v == null || v.isEmpty) {
+                return isLogin ? 'Username is required' : 'Email is required';
+              }
+              if (!isLogin && !RegExp(r'^[\w-.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(v)) {
                 return 'Enter a valid email address';
               }
               return null;

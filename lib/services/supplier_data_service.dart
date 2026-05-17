@@ -1,148 +1,79 @@
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../presentation/supplier_screen/supplier_screen.dart';
+import 'api_service.dart';
 
 class SupplierDataService {
-  static const String _suppliersKey = 'suppliers_data';
-  static late SharedPreferences _prefs;
+  static final ApiService _apiService = ApiService();
 
   static Future<void> init() async {
-    _prefs = await SharedPreferences.getInstance();
+    await _apiService.init();
   }
 
-  static List<Supplier> _getInitialMockData() {
-    return [
-      Supplier(
-        id: 'S001',
-        name: 'ProTools Supply Co.',
-        contactPerson: 'James Wilson',
-        email: 'sales@protools.com',
-        phone: '+1 (555) 100-2000',
-        address: '100 Industrial Way, Chicago, IL 60601',
-        category: 'Power Tools',
-        totalOrders: 125400.00,
-        orderCount: 28,
-        rating: 4.8,
-        leadTimeDays: 5,
-        notes: 'Preferred supplier for power tools',
-      ),
-      Supplier(
-        id: 'S002',
-        name: 'Meridian Hardware Dist.',
-        contactPerson: 'Patricia Lee',
-        email: 'orders@meridian.com',
-        phone: '+1 (555) 200-3000',
-        address: '200 Commerce Blvd, Detroit, MI 48201',
-        category: 'Hand Tools',
-        totalOrders: 67800.50,
-        orderCount: 19,
-        rating: 4.5,
-        leadTimeDays: 7,
-        notes: '',
-      ),
-      Supplier(
-        id: 'S003',
-        name: 'SafeGuard Industrial',
-        contactPerson: 'Thomas Brown',
-        email: 'supply@safeguard.com',
-        phone: '+1 (555) 300-4000',
-        address: '300 Safety Pkwy, Cleveland, OH 44101',
-        category: 'Safety Equipment',
-        totalOrders: 34200.00,
-        orderCount: 12,
-        rating: 4.2,
-        leadTimeDays: 10,
-        notes: 'Certified safety equipment supplier',
-      ),
-      Supplier(
-        id: 'S004',
-        name: 'TechMeasure Solutions',
-        contactPerson: 'Angela Davis',
-        email: 'info@techmeasure.com',
-        phone: '+1 (555) 400-5000',
-        address: '400 Tech Drive, Columbus, OH 43201',
-        category: 'Measuring Tools',
-        totalOrders: 18900.00,
-        orderCount: 8,
-        rating: 3.8,
-        leadTimeDays: 14,
-        notes: 'On hold pending contract renewal',
-      ),
-      Supplier(
-        id: 'S005',
-        name: 'FastFix Distributors',
-        contactPerson: 'Michael Scott',
-        email: 'orders@fastfix.com',
-        phone: '+1 (555) 500-6000',
-        address: '500 Logistics Ave, Indianapolis, IN 46201',
-        category: 'General Hardware',
-        totalOrders: 5600.00,
-        orderCount: 4,
-        rating: 3.2,
-        leadTimeDays: 21,
-        notes: 'Inactive - poor delivery performance',
-      ),
-    ];
-  }
-
-  static Map<String, dynamic> _supplierToMap(Supplier supplier) {
-    return {
-      'id': supplier.id,
-      'name': supplier.name,
-      'contactPerson': supplier.contactPerson,
-      'email': supplier.email,
-      'phone': supplier.phone,
-      'address': supplier.address,
-      'category': supplier.category,
-      'totalOrders': supplier.totalOrders,
-      'orderCount': supplier.orderCount,
-      'rating': supplier.rating,
-      'leadTimeDays': supplier.leadTimeDays,
-      'notes': supplier.notes,
-    };
-  }
-
-  static Supplier _mapToSupplier(Map<String, dynamic> map) {
-    return Supplier(
-      id: map['id'] as String,
-      name: map['name'] as String,
-      contactPerson: map['contactPerson'] as String,
-      email: map['email'] as String,
-      phone: map['phone'] as String,
-      address: map['address'] as String,
-      category: map['category'] as String,
-      totalOrders: (map['totalOrders'] as num).toDouble(),
-      orderCount: map['orderCount'] as int,
-      rating: (map['rating'] as num).toDouble(),
-      leadTimeDays: map['leadTimeDays'] as int,
-      notes: map['notes'] as String? ?? '',
-    );
-  }
-
-  static Future<void> saveSuppliers(List<Supplier> suppliers) async {
+  /// Fetch suppliers from Django backend. Throws on network/API errors.
+  static Future<List<Supplier>> fetchSuppliersFromAPI() async {
     try {
-      final jsonData = suppliers.map((s) => _supplierToMap(s)).toList();
-      await _prefs.setString(_suppliersKey, jsonEncode(jsonData));
+      final response = await _apiService.get<List<dynamic>>(
+        '/api/sources/',
+        fromJson: (json) => (json as List).map((item) => item).toList(),
+      );
+
+      final suppliers = response.map((source) {
+        return Supplier(
+          id: source['sourceId']?.toString() ?? source['id']?.toString() ?? '',
+          name: source['name'] ?? 'Unknown',
+          contactPerson: source['contactPerson'] ?? '',
+          email: source['email'] ?? '',
+          phone: source['phone'] ?? '',
+          address: source['address'] ?? '',
+          category: source['category'] ?? '',
+          totalOrders: 0.0,
+          orderCount: 0,
+          rating: 4.0,
+          leadTimeDays: 7,
+          notes: source['notes'] ?? '',
+        );
+      }).toList();
+
+      return suppliers;
     } catch (e) {
-      print('Error saving suppliers: $e');
+      print('Error fetching suppliers from API: $e');
+      rethrow;
     }
   }
 
-  static Future<List<Supplier>> loadSuppliers() async {
+  /// Create a new supplier on the backend. Returns created Supplier or null if API call fails.
+  static Future<Supplier?> createSupplierOnAPI(
+    Map<String, dynamic> data,
+  ) async {
     try {
-      final jsonString = _prefs.getString(_suppliersKey);
-      if (jsonString == null || jsonString.isEmpty) {
-        final initialData = _getInitialMockData();
-        await saveSuppliers(initialData);
-        return initialData;
-      }
-      final jsonData = jsonDecode(jsonString) as List;
-      return jsonData
-          .map((item) => _mapToSupplier(item as Map<String, dynamic>))
-          .toList();
+      final response = await _apiService.post<Map<String, dynamic>>(
+        '/api/sources/',
+        data: data,
+        fromJson: (json) => json as Map<String, dynamic>,
+      );
+
+      final supplier = Supplier(
+        id:
+            response['sourceId']?.toString() ??
+            response['id']?.toString() ??
+            '',
+        name: response['name'] ?? data['name'] ?? 'Unknown',
+        contactPerson: response['contactPerson'] ?? data['contactPerson'] ?? '',
+        email: response['email'] ?? data['email'] ?? '',
+        phone: response['phone'] ?? data['phone'] ?? '',
+        address: response['address'] ?? data['address'] ?? '',
+        category: response['category'] ?? data['category'] ?? '',
+        totalOrders: 0.0,
+        orderCount: 0,
+        rating: 4.0,
+        leadTimeDays: 7,
+        notes: response['notes'] ?? data['notes'] ?? '',
+      );
+
+      return supplier;
     } catch (e) {
-      print('Error loading suppliers: $e');
-      return _getInitialMockData();
+      print('Error creating supplier on API: $e');
+      return null;
     }
   }
 }

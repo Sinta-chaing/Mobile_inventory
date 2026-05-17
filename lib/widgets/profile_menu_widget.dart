@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/app_theme.dart';
 import '../routes/app_routes.dart';
+import '../services/user_service.dart';
+import '../services/api_service.dart';
+import '../utils/user_role_constants.dart';
 
 class ProfileMenuWidget extends StatelessWidget {
   const ProfileMenuWidget({super.key});
@@ -33,8 +36,25 @@ class ProfileMenuWidget extends StatelessWidget {
 }
 
 class _ProfileMenuSheet extends StatelessWidget {
+  late UserService _userService;
+  late ApiService _apiService;
+
+  _ProfileMenuSheet() {
+    _userService = UserService();
+    _apiService = ApiService();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final user = _userService.getUser();
+    final roleColor = user != null
+        ? UserRole.getRoleColor(user.role)
+        : '#999999';
+    final roleIcon = user != null ? UserRole.getRoleIcon(user.role) : '❓';
+    final roleName = user != null
+        ? UserRole.getDisplayName(user.role)
+        : 'Unknown';
+
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -56,6 +76,69 @@ class _ProfileMenuSheet extends StatelessWidget {
                 ),
               ),
             ),
+
+            // User Info Section
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Username
+                  Text(
+                    user?.username ?? 'Guest User',
+                    style: GoogleFonts.ibmPlexSans(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1A1C1B),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Email
+                  if (user?.email != null && user!.email.isNotEmpty)
+                    Text(
+                      user.email,
+                      style: GoogleFonts.ibmPlexSans(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+
+                  // Role Badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Color(
+                        int.parse('0x${roleColor.replaceFirst('#', '')}'),
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(roleIcon, style: const TextStyle(fontSize: 14)),
+                        const SizedBox(width: 8),
+                        Text(
+                          roleName,
+                          style: GoogleFonts.ibmPlexSans(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const Divider(height: 24, indent: 16, endIndent: 16),
+
             // Menu items
             Flexible(
               child: SingleChildScrollView(
@@ -127,7 +210,12 @@ class _ProfileMenuSheet extends StatelessWidget {
             ),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
+              // Clear user and auth token
+              await _userService.clearUser();
+              await _apiService.logout();
+
+              if (!context.mounted) return;
               Navigator.pop(context); // Close dialog
               Navigator.pushReplacementNamed(
                 context,

@@ -1,80 +1,176 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../presentation/purchase_screen/purchase_screen.dart';
+import 'api_service.dart';
 
 class OrderService {
   static const String _ordersKey = 'orders_data';
   static late SharedPreferences _prefs;
+  static final ApiService _apiService = ApiService();
 
   // Initialize the service
   static Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+    await _apiService.init();
   }
 
-  // Get initial mock data
-  static List<Order> _getInitialMockData() {
-    return [
-      Order(
-        orderId: 'ORD-2024-001',
-        createdDate: DateTime.now().subtract(const Duration(days: 5)),
-        customerName: 'John Doe',
-        customerPhone: '+855 12 345 678',
-        paymentMethod: PaymentMethod.khqr,
-        total: 2999.80,
-        status: OrderStatus.paid,
-        paidAt: DateTime.now().subtract(const Duration(days: 4)),
-        createdBy: 'Admin User',
-        items: [
-          OrderItem(
-            itemName: 'DeWalt 20V Cordless Drill',
-            quantity: 20,
-            unitPrice: 149.99,
+  /// Fetch orders/invoices from Django backend
+  static Future<List<Order>> fetchOrdersFromAPI() async {
+    try {
+      final response = await _apiService.get<List<dynamic>>(
+        '/api/invoices/',
+        fromJson: (json) => (json as List).map((item) => item).toList(),
+      );
+
+      final orders = response.map((invoice) {
+        return Order(
+          orderId:
+              invoice['invoiceNumber']?.toString() ??
+              invoice['invoice_number']?.toString() ??
+              invoice['invoiceId']?.toString() ??
+              invoice['id']?.toString() ??
+              '',
+          createdDate: DateTime.parse(
+            invoice['createdAt'] as String? ??
+                invoice['created_at'] as String? ??
+                DateTime.now().toIso8601String(),
           ),
-        ],
-      ),
-      Order(
-        orderId: 'ORD-2024-002',
-        createdDate: DateTime.now().subtract(const Duration(days: 2)),
-        customerName: 'Jane Smith',
-        customerPhone: '+855 98 765 432',
-        paymentMethod: PaymentMethod.cash,
-        total: 799.70,
-        status: OrderStatus.pending,
-        paidAt: null,
-        createdBy: 'Staff Member',
-        items: [
-          OrderItem(
-            itemName: 'Stanley FatMax Tape Measure 25ft',
-            quantity: 30,
-            unitPrice: 24.99,
-          ),
-          OrderItem(
-            itemName: 'Makita Angle Grinder 4.5"',
-            quantity: 5,
-            unitPrice: 99.95,
-          ),
-        ],
-      ),
-      Order(
-        orderId: 'ORD-2024-003',
-        createdDate: DateTime.now().subtract(const Duration(hours: 3)),
-        customerName: 'Mike Johnson',
-        customerPhone: '+855 77 123 456',
-        paymentMethod: PaymentMethod.khqr,
-        total: 699.50,
-        status: OrderStatus.paid,
-        paidAt: DateTime.now().subtract(const Duration(hours: 2)),
-        createdBy: 'Admin User',
-        items: [
-          OrderItem(
-            itemName: '3M Safety Glasses',
-            quantity: 100,
-            unitPrice: 2.50,
-          ),
-          OrderItem(itemName: 'Work Gloves', quantity: 50, unitPrice: 8.99),
-        ],
-      ),
-    ];
+          customerName:
+              invoice['customerName'] ??
+              invoice['customer']?['name'] ??
+              'Unknown',
+          customerPhone:
+              invoice['customerPhone'] ?? invoice['customer']?['phone'] ?? '',
+          paymentMethod:
+              (invoice['paymentMethod'] as String?)?.toLowerCase() == 'khqr' ||
+                  (invoice['payment_method'] as String?)?.toLowerCase() ==
+                      'khqr'
+              ? PaymentMethod.khqr
+              : PaymentMethod.cash,
+          total: (invoice['grandTotal'] ?? invoice['total'] ?? 0).toDouble(),
+          status: (invoice['status'] as String?)?.toLowerCase() == 'paid'
+              ? OrderStatus.paid
+              : OrderStatus.pending,
+          paidAt: invoice['paidAt'] != null
+              ? DateTime.parse(invoice['paidAt'] as String)
+              : null,
+          createdBy:
+              invoice['createdByUser']?['username'] ??
+              invoice['created_by']?['username'] ??
+              'System',
+          items:
+              (invoice['purchases'] as List? ??
+                      invoice['invoice_items'] as List?)
+                  ?.map(
+                    (item) => OrderItem(
+                      itemName:
+                          item['product']?['productName'] ??
+                          item['product']?['name'] ??
+                          'Unknown',
+                      quantity: item['quantity'] as int? ?? 0,
+                      unitPrice:
+                          (item['pricePerUnit'] ?? item['unit_price'] ?? 0)
+                              .toDouble(),
+                      discount: (item['discount'] ?? 0).toDouble(),
+                    ),
+                  )
+                  .toList() ??
+              [],
+        );
+      }).toList();
+
+      // Cache to local storage
+      await saveOrders(orders);
+      return orders;
+    } catch (e) {
+      print('❌ Error fetching orders from API: $e');
+      // Fallback to cached data
+      return await loadOrders();
+    }
+  }
+
+  /// Create new order/invoice
+  static Future<Order?> createOrder(Map<String, dynamic> orderData) async {
+    try {
+      final response = await _apiService.post(
+        '/api/invoices/',
+        data: orderData,
+        fromJson: (json) => json,
+      );
+
+      return Order(
+        orderId:
+            response['invoiceNumber']?.toString() ??
+            response['invoice_number']?.toString() ??
+            response['invoiceId']?.toString() ??
+            response['id']?.toString() ??
+            '',
+        createdDate: DateTime.parse(
+          response['createdAt'] as String? ??
+              response['created_at'] as String? ??
+              DateTime.now().toIso8601String(),
+        ),
+        customerName:
+            response['customerName'] ??
+            response['customer']?['name'] ??
+            'Unknown',
+        customerPhone:
+            response['customerPhone'] ?? response['customer']?['phone'] ?? '',
+        paymentMethod:
+            (response['paymentMethod'] as String?)?.toLowerCase() == 'khqr' ||
+                (response['payment_method'] as String?)?.toLowerCase() == 'khqr'
+            ? PaymentMethod.khqr
+            : PaymentMethod.cash,
+        total: (response['grandTotal'] ?? response['total'] ?? 0).toDouble(),
+        status: (response['status'] as String?)?.toLowerCase() == 'paid'
+            ? OrderStatus.paid
+            : OrderStatus.pending,
+        paidAt: response['paidAt'] != null
+            ? DateTime.parse(response['paidAt'] as String)
+            : null,
+        createdBy:
+            response['createdByUser']?['username'] ??
+            response['created_by']?['username'] ??
+            'System',
+        items: [],
+      );
+    } catch (e) {
+      print('❌ Error creating order: $e');
+      return null;
+    }
+  }
+
+  /// Update order status
+  static Future<bool> updateOrderStatus(String orderId, String status) async {
+    try {
+      // Capitalize status to match Django model choices (Paid, Pending, Cancelled)
+      final capitalizedStatus =
+          status[0].toUpperCase() + status.substring(1).toLowerCase();
+      await _apiService.put(
+        '/api/invoices/$orderId/',
+        data: {'status': capitalizedStatus},
+        fromJson: (json) => json,
+      );
+      return true;
+    } catch (e) {
+      print('❌ Error updating order: $e');
+      return false;
+    }
+  }
+
+  /// Mark order as paid
+  static Future<bool> markOrderAsPaid(String orderId) async {
+    try {
+      await _apiService.put(
+        '/api/invoices/$orderId/',
+        data: {'status': 'Paid', 'paidAt': DateTime.now().toIso8601String()},
+        fromJson: (json) => json,
+      );
+      return true;
+    } catch (e) {
+      print('❌ Error marking order as paid: $e');
+      return false;
+    }
   }
 
   // Save orders to persistent storage
@@ -96,21 +192,14 @@ class OrderService {
         '📦 Retrieved from SharedPreferences: ${jsonString?.length ?? 0} characters',
       );
       if (jsonString == null || jsonString.isEmpty) {
-        // Return initial mock data on first run
-        final initialData = _getInitialMockData();
-        print(
-          '📝 No saved data found, returning ${initialData.length} mock orders',
-        );
-        await saveOrders(initialData);
-        return initialData;
+        return [];
       }
       final jsonData = jsonDecode(jsonString) as List;
       print('✅ Loaded ${jsonData.length} orders from SharedPreferences');
       return jsonData.map((item) => _orderFromJson(item)).toList();
     } catch (e) {
       print('❌ Error loading orders: $e');
-      // Return initial mock data on error
-      return _getInitialMockData();
+      return [];
     }
   }
 
@@ -173,32 +262,16 @@ class OrderService {
   }
 
   // Verify KHQR payment status
-  // In a real app, this would call your payment gateway API to verify the payment
   static Future<bool> verifyKhqrPayment(String orderId, double amount) async {
     try {
-      // Simulate API call to payment gateway
-      // In production, replace this with actual API call to verify payment
-      // Example: Check with KHQR provider, MD5 verification, transaction lookup
-      await Future.delayed(const Duration(seconds: 2));
-
-      // This simulates checking payment status
-      // In real app:
-      // 1. Generate MD5 hash of payment details
-      // 2. Call payment provider API to verify transaction
-      // 3. Match transaction amount and order details
-      // 4. Confirm payment was received
-
-      // For now, simulate that payment needs to be received
-      // Return false to indicate payment not verified yet
-      // You would replace this with actual verification logic
-      print(
-        '🔍 Checking KHQR payment for order: $orderId, amount: $amount USD',
+      // Call Django backend to verify KHQR payment
+      final response = await _apiService.post(
+        '/api/invoices/$orderId/verify-payment/',
+        data: {'amount': amount},
+        fromJson: (json) => json,
       );
 
-      // Simulate API response - in real scenario this would check actual payment status
-      // Currently returning false to show that payment wasn't received yet
-      // This should be replaced with real payment gateway integration
-      return false; // Payment not yet received - verification failed
+      return response['verified'] ?? false;
     } catch (e) {
       print('❌ Payment verification error: $e');
       return false;

@@ -15,7 +15,8 @@ import './widgets/inventory_stats_strip_widget.dart';
 enum StockStatusEnum { inStock, lowStock, outOfStock }
 
 class StockItem {
-  final String id;
+  final String id; // Product ID
+  final String inventoryId; // Inventory ID (used for API updates)
   final String name;
   final String sku;
   final String category;
@@ -29,6 +30,7 @@ class StockItem {
 
   StockItem({
     required this.id,
+    required this.inventoryId,
     required this.name,
     required this.sku,
     required this.category,
@@ -50,6 +52,7 @@ class StockItem {
   factory StockItem.fromMap(Map<String, dynamic> map) {
     return StockItem(
       id: map['id'] as String,
+      inventoryId: map['inventoryId'] as String? ?? '', // Use first inventory ID if available
       name: map['name'] as String,
       sku: map['sku'] as String,
       category: map['category'] as String,
@@ -66,6 +69,7 @@ class StockItem {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'inventoryId': inventoryId,
       'name': name,
       'sku': sku,
       'category': category,
@@ -116,7 +120,8 @@ class _InventoryScreenState extends State<InventoryScreen>
 
   Future<void> _loadInventory() async {
     try {
-      final items = await InventoryService.loadInventory();
+      // Fetch from API (will fallback to cache if API fails)
+      final items = await InventoryService.fetchProductsFromAPI();
       if (mounted) {
         setState(() {
           _items = items;

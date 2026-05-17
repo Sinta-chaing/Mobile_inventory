@@ -6,6 +6,7 @@ import '../../routes/app_routes.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
+import '../../services/supplier_data_service.dart';
 
 class Supplier {
   final String id;
@@ -47,79 +48,38 @@ class SupplierScreen extends StatefulWidget {
 class _SupplierScreenState extends State<SupplierScreen> {
   int _selectedNavIndex = 3;
   String _searchQuery = '';
+  List<Supplier> _suppliers = [];
+  bool _isLoading = true;
 
-  final List<Supplier> _suppliers = [
-    Supplier(
-      id: 'S001',
-      name: 'ProTools Supply Co.',
-      contactPerson: 'James Wilson',
-      email: 'sales@protools.com',
-      phone: '+1 (555) 100-2000',
-      address: '100 Industrial Way, Chicago, IL 60601',
-      category: 'Power Tools',
-      totalOrders: 125400.00,
-      orderCount: 28,
-      rating: 4.8,
-      leadTimeDays: 5,
-      notes: 'Preferred supplier for power tools',
-    ),
-    Supplier(
-      id: 'S002',
-      name: 'Meridian Hardware Dist.',
-      contactPerson: 'Patricia Lee',
-      email: 'orders@meridian.com',
-      phone: '+1 (555) 200-3000',
-      address: '200 Commerce Blvd, Detroit, MI 48201',
-      category: 'Hand Tools',
-      totalOrders: 67800.50,
-      orderCount: 19,
-      rating: 4.5,
-      leadTimeDays: 7,
-      notes: '',
-    ),
-    Supplier(
-      id: 'S003',
-      name: 'SafeGuard Industrial',
-      contactPerson: 'Thomas Brown',
-      email: 'supply@safeguard.com',
-      phone: '+1 (555) 300-4000',
-      address: '300 Safety Pkwy, Cleveland, OH 44101',
-      category: 'Safety Equipment',
-      totalOrders: 34200.00,
-      orderCount: 12,
-      rating: 4.2,
-      leadTimeDays: 10,
-      notes: 'Certified safety equipment supplier',
-    ),
-    Supplier(
-      id: 'S004',
-      name: 'TechMeasure Solutions',
-      contactPerson: 'Angela Davis',
-      email: 'info@techmeasure.com',
-      phone: '+1 (555) 400-5000',
-      address: '400 Tech Drive, Columbus, OH 43201',
-      category: 'Measuring Tools',
-      totalOrders: 18900.00,
-      orderCount: 8,
-      rating: 3.8,
-      leadTimeDays: 14,
-      notes: 'On hold pending contract renewal',
-    ),
-    Supplier(
-      id: 'S005',
-      name: 'FastFix Distributors',
-      contactPerson: 'Michael Scott',
-      email: 'orders@fastfix.com',
-      phone: '+1 (555) 500-6000',
-      address: '500 Logistics Ave, Indianapolis, IN 46201',
-      category: 'General Hardware',
-      totalOrders: 5600.00,
-      orderCount: 4,
-      rating: 3.2,
-      leadTimeDays: 21,
-      notes: 'Inactive - poor delivery performance',
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadSuppliers();
+  }
+
+  Future<void> _loadSuppliers() async {
+    try {
+      final suppliers = await SupplierDataService.fetchSuppliersFromAPI();
+      setState(() {
+        _suppliers = suppliers;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading suppliers: $e');
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✗ Failed to load suppliers from API.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
 
   List<Supplier> get _filteredSuppliers {
     return _suppliers.where((s) {
@@ -395,6 +355,10 @@ class _SupplierScreenState extends State<SupplierScreen> {
   }
 
   Widget _buildSupplierList() {
+    if (_isLoading) {
+      return Center(child: CircularProgressIndicator(color: AppTheme.primary));
+    }
+
     final suppliers = _filteredSuppliers;
     if (suppliers.isEmpty) {
       return Center(
@@ -674,30 +638,80 @@ class _SupplierScreenState extends State<SupplierScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              if (nameCtrl.text.isNotEmpty) {
-                setState(() {
-                  _suppliers.insert(
-                    0,
-                    Supplier(
-                      id: 'S${DateTime.now().millisecondsSinceEpoch}',
-                      name: nameCtrl.text,
-                      contactPerson: contactCtrl.text,
-                      email: emailCtrl.text,
-                      phone: phoneCtrl.text,
-                      address: addressCtrl.text,
-                      category: categoryCtrl.text.isEmpty
-                          ? 'General'
-                          : categoryCtrl.text,
-                      totalOrders: 0,
-                      orderCount: 0,
-                      rating: 4.0,
-                      leadTimeDays: 7,
+            onPressed: () async {
+              if (nameCtrl.text.isEmpty) return;
+
+              final payload = {
+                'name': nameCtrl.text.trim(),
+                'contactPerson': contactCtrl.text.trim(),
+                'email': emailCtrl.text.trim(),
+                'phone': phoneCtrl.text.trim(),
+                'address': addressCtrl.text.trim(),
+                'category': categoryCtrl.text.isEmpty
+                    ? 'General'
+                    : categoryCtrl.text.trim(),
+              };
+
+              // Try to create supplier on backend; do not fallback to local/static data
+              Future<void> showFailureDialog() async {
+                final retry = await showDialog<bool>(
+                  context: context,
+                  builder: (dctx) => AlertDialog(
+                    title: const Text('Create supplier failed'),
+                    content: const Text(
+                      'Failed to create supplier on the server. Would you like to retry?',
                     ),
-                  );
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dctx).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.of(dctx).pop(true),
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (retry == true) {
+                  // Attempt again
+                  final retryCreated =
+                      await SupplierDataService.createSupplierOnAPI(payload);
+                  if (retryCreated != null) {
+                    setState(() {
+                      _suppliers.insert(0, retryCreated);
+                    });
+                    Navigator.pop(ctx); // close add dialog
+                    return;
+                  }
+                  // If still fails, show snack and keep add dialog open for user to try again or cancel
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          '✗ Retry failed. Please check your connection or try again later.',
+                        ),
+                        backgroundColor: Colors.red,
+                        duration: Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                }
+              }
+
+              final created = await SupplierDataService.createSupplierOnAPI(
+                payload,
+              );
+              if (created != null) {
+                setState(() {
+                  _suppliers.insert(0, created);
                 });
                 Navigator.pop(ctx);
+                return;
               }
+
+              await showFailureDialog();
             },
             child: const Text('Add'),
           ),

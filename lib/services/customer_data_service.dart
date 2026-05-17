@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api_service.dart';
 
 // Simple Customer model for data services
 class CustomerData {
@@ -7,7 +8,7 @@ class CustomerData {
   final String name;
   final String phone;
   final String email;
-  final String company;
+  final String company; // Maps to businessAddress in Django
 
   CustomerData({
     required this.id,
@@ -29,11 +30,12 @@ class CustomerData {
 
   factory CustomerData.fromMap(Map<String, dynamic> map) {
     return CustomerData(
-      id: map['id'] as String,
-      name: map['name'] as String,
-      phone: map['phone'] as String,
+      id: map['customerId']?.toString() ?? map['id']?.toString() ?? '',
+      name: map['name'] as String? ?? '',
+      phone: map['phone'] as String? ?? '',
       email: map['email'] as String? ?? '',
-      company: map['company'] as String? ?? '',
+      company:
+          map['businessAddress'] as String? ?? map['company'] as String? ?? '',
     );
   }
 }
@@ -41,51 +43,83 @@ class CustomerData {
 class CustomerDataService {
   static const String _customersKey = 'customers_data';
   static late SharedPreferences _prefs;
+  static final ApiService _apiService = ApiService();
 
   static Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+    await _apiService.init();
   }
 
-  static List<CustomerData> _getInitialMockData() {
-    return [
-      CustomerData(
-        id: 'C001',
-        name: 'John Doe',
-        phone: '+855 12 345 678',
-        email: 'john@example.com',
-        company: 'Company A',
-      ),
-      CustomerData(
-        id: 'C002',
-        name: 'Jane Smith',
-        phone: '+855 98 765 432',
-        email: 'jane@example.com',
-        company: 'Company B',
-      ),
-      CustomerData(
-        id: 'C003',
-        name: 'Mike Johnson',
-        phone: '+855 77 123 456',
-        email: 'mike@example.com',
-        company: 'Company C',
-      ),
-      CustomerData(
-        id: 'C004',
-        name: 'Sarah Williams',
-        phone: '+855 55 987 654',
-        email: 'sarah@example.com',
-        company: 'Company D',
-      ),
-      CustomerData(
-        id: 'C005',
-        name: 'David Brown',
-        phone: '+855 66 432 109',
-        email: 'david@example.com',
-        company: 'Company E',
-      ),
-    ];
+  /// Fetch customers from Django backend
+  static Future<List<CustomerData>> fetchCustomersFromAPI() async {
+    try {
+      final response = await _apiService.get<List<dynamic>>(
+        '/api/customers/',
+        fromJson: (json) => (json as List).map((item) => item).toList(),
+      );
+
+      final customers = response
+          .map((customer) => CustomerData.fromMap(customer))
+          .toList();
+
+      // Cache to local storage
+      await saveCustomers(customers);
+      return customers;
+    } catch (e) {
+      print('Error fetching customers from API: $e');
+      // Fallback to cached data
+      return await loadCustomers();
+    }
   }
 
+  /// Create new customer
+  static Future<CustomerData?> createCustomer(
+    Map<String, dynamic> customerData,
+  ) async {
+    try {
+      final response = await _apiService.post(
+        '/api/customers/',
+        data: customerData,
+        fromJson: (json) => json,
+      );
+
+      return CustomerData.fromMap(response);
+    } catch (e) {
+      print('Error creating customer: $e');
+      return null;
+    }
+  }
+
+  /// Update customer
+  static Future<bool> updateCustomer(
+    String customerId,
+    Map<String, dynamic> customerData,
+  ) async {
+    try {
+      await _apiService.put(
+        '/api/customers/$customerId/',
+        data: customerData,
+        fromJson: (json) => json,
+      );
+      return true;
+    } catch (e) {
+      print('Error updating customer: $e');
+      return false;
+    }
+  }
+
+  /// Delete customer
+  static Future<bool> deleteCustomer(String customerId) async {
+    try {
+      await _apiService.delete('/api/customers/$customerId/');
+      return true;
+    } catch (e) {
+      print('Error deleting customer: $e');
+      return false;
+    }
+  }
+
+  /// Save customers to local cache
   static Future<void> saveCustomers(List<CustomerData> customers) async {
     try {
       final jsonData = customers.map((c) => c.toMap()).toList();
@@ -95,13 +129,12 @@ class CustomerDataService {
     }
   }
 
+  /// Load customers from local cache
   static Future<List<CustomerData>> loadCustomers() async {
     try {
       final jsonString = _prefs.getString(_customersKey);
       if (jsonString == null || jsonString.isEmpty) {
-        final initialData = _getInitialMockData();
-        await saveCustomers(initialData);
-        return initialData;
+        return [];
       }
       final jsonData = jsonDecode(jsonString) as List;
       return jsonData
@@ -109,7 +142,7 @@ class CustomerDataService {
           .toList();
     } catch (e) {
       print('Error loading customers: $e');
-      return _getInitialMockData();
+      return [];
     }
   }
 }
