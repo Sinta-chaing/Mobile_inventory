@@ -14,29 +14,43 @@ import '../../widgets/profile_menu_widget.dart';
 import 'package:khqr_sdk/khqr_sdk.dart';
 import 'package:khqr_widget/khqr_widget.dart';
 import '../inventory_screen/inventory_screen.dart';
+import '../../models/all_models.dart' as backend;
 
 enum PaymentMethod { cash, khqr }
 
 enum OrderStatus { pending, paid }
 
 class Customer {
-  final String id;
+  final int customerId;
   final String name;
   final String phone;
 
-  Customer({required this.id, required this.name, required this.phone});
+  Customer({required this.customerId, required this.name, required this.phone});
+
+  /// Map from backend Customer model
+  static Customer fromBackend(backend.Customer customer) {
+    return Customer(
+      customerId: customer.customerId,
+      name: customer.name,
+      phone: customer.phone,
+    );
+  }
 }
 
 class Product {
-  final String id;
+  final int productId;
   final String name;
   final double sellingPrice;
 
-  Product({required this.id, required this.name, required this.sellingPrice});
+  Product({
+    required this.productId,
+    required this.name,
+    required this.sellingPrice,
+  });
 }
 
 class Order {
-  final String orderId;
+  final int invoiceId;
   final DateTime createdDate;
   final String customerName;
   final String customerPhone;
@@ -44,12 +58,13 @@ class Order {
   final double total;
   OrderStatus status;
   DateTime? paidAt;
-  final String createdBy;
+  final int? createdByUserId;
+  final String createdBy; // For UI display
   final List<OrderItem> items;
   String? khqrCode; // KHQR code generated when payment method is KHQR
 
   Order({
-    required this.orderId,
+    required this.invoiceId,
     required this.createdDate,
     required this.customerName,
     required this.customerPhone,
@@ -57,10 +72,46 @@ class Order {
     required this.total,
     required this.status,
     this.paidAt,
-    required this.createdBy,
+    this.createdByUserId,
+    this.createdBy = 'App',
     required this.items,
     this.khqrCode,
   });
+
+  /// Map from backend Invoice model
+  static Order fromBackend(backend.Invoice invoice) {
+    final method = invoice.paymentMethod.toLowerCase() == 'cash'
+        ? PaymentMethod.cash
+        : PaymentMethod.khqr;
+    final status = invoice.status.toLowerCase() == 'paid'
+        ? OrderStatus.paid
+        : OrderStatus.pending;
+
+    final items = invoice.purchases
+        .map(
+          (p) => OrderItem(
+            itemName: 'Product ${p.productId}',
+            quantity: p.quantity,
+            unitPrice: p.pricePerUnit,
+            discount: p.discount,
+          ),
+        )
+        .toList();
+
+    return Order(
+      invoiceId: invoice.invoiceId,
+      createdDate: invoice.createdAt,
+      customerName: invoice.customerName,
+      customerPhone: invoice.customerPhone ?? '',
+      paymentMethod: method,
+      total: invoice.grandTotal,
+      status: status,
+      paidAt: invoice.paidAt,
+      createdByUserId: invoice.createdByUserId,
+      createdBy: 'User ${invoice.createdByUserId ?? 0}',
+      items: items,
+    );
+  }
 }
 
 class OrderItem {
@@ -107,20 +158,18 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
 
   Future<void> _loadData() async {
     try {
-      // Load customers from API
-      final customerData = await CustomerDataService.fetchCustomersFromAPI();
-      final customers = customerData
-          .map(
-            (data) => Customer(id: data.id, name: data.name, phone: data.phone),
-          )
+      // Load customers from backend
+      final backendCustomers = await CustomerDataService.fetchCustomers();
+      final customers = backendCustomers
+          .map((c) => Customer.fromBackend(c))
           .toList();
 
       // Load products from inventory service
-      final inventory = await InventoryService.fetchProductsFromAPI();
+      final inventory = await InventoryService.fetchProducts();
       final products = inventory
           .map(
             (stock) => Product(
-              id: stock.id,
+              productId: int.parse(stock.id),
               name: stock.name,
               sellingPrice: stock.unitPrice,
             ),
@@ -128,7 +177,10 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
           .toList();
 
       // Load orders
-      final loadedOrders = await OrderService.loadOrders();
+      final backendInvoices = await OrderService.loadOrders();
+      final loadedOrders = backendInvoices
+          .map((inv) => Order.fromBackend(inv))
+          .toList();
       print('🔄 Purchase screen loaded ${loadedOrders.length} orders');
 
       setState(() {
@@ -223,16 +275,8 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   String _generateNextOrderId() {
     int maxNumber = 0;
     for (var order in _orders) {
-      try {
-        final numStr = order.orderId.replaceAll(RegExp(r'[^0-9]'), '');
-        if (numStr.isNotEmpty) {
-          final num = int.parse(numStr);
-          if (num > maxNumber) {
-            maxNumber = num;
-          }
-        }
-      } catch (e) {
-        // Skip parsing errors
+      if (order.invoiceId > maxNumber) {
+        maxNumber = order.invoiceId;
       }
     }
     return 'ORD-2024-${(maxNumber + 1).toString().padLeft(3, '0')}';
@@ -267,7 +311,9 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     return _orders.where((o) {
       final matchSearch =
           _searchQuery.isEmpty ||
-          o.orderId.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          o.invoiceId.toString().toLowerCase().contains(
+            _searchQuery.toLowerCase(),
+          ) ||
           o.customerName.toLowerCase().contains(_searchQuery.toLowerCase());
       return matchSearch;
     }).toList();
@@ -586,7 +632,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        order.orderId,
+                        'Order #${order.invoiceId}',
                         style: GoogleFonts.dmSans(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -1627,7 +1673,7 @@ class _OrderDetailSheetState extends State<_OrderDetailSheet> {
     try {
       // Call the OrderService to verify payment with payment gateway
       final paymentVerified = await OrderService.verifyKhqrPayment(
-        order.orderId,
+        order.invoiceId.toString(),
         order.total,
       );
 
@@ -1709,7 +1755,7 @@ class _OrderDetailSheetState extends State<_OrderDetailSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            order.orderId,
+                            'Order #${order.invoiceId}',
                             style: GoogleFonts.dmSans(
                               fontSize: 20,
                               fontWeight: FontWeight.w700,

@@ -7,31 +7,68 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
 import '../../services/customer_data_service.dart';
+import '../../models/all_models.dart' as backend;
 
+// UI-specific Customer model with extra fields for display
 class Customer {
-  final String id;
+  final int customerId;
   String name;
-  String email;
+  String? email;
   String phone;
-  String company;
+  String businessAddress;
+  String customerType;
+  String company; // Maps to businessAddress
   String address;
   double totalPurchases;
   int orderCount;
+  DateTime? firstPurchaseDate;
   DateTime joinDate;
   String notes;
 
   Customer({
-    required this.id,
+    required this.customerId,
     required this.name,
-    required this.email,
+    this.email,
     required this.phone,
-    required this.company,
-    required this.address,
-    required this.totalPurchases,
-    required this.orderCount,
-    required this.joinDate,
+    required this.businessAddress,
+    required this.customerType,
+    String? company,
+    String? address,
+    this.totalPurchases = 0.0,
+    this.orderCount = 0,
+    this.firstPurchaseDate,
+    DateTime? joinDate,
     this.notes = '',
-  });
+  }) : company = company ?? businessAddress,
+       address = address ?? businessAddress,
+       joinDate = joinDate ?? DateTime.now();
+
+  /// Map from backend Customer model to UI Customer
+  static Customer fromBackend(backend.Customer customer) {
+    return Customer(
+      customerId: customer.customerId,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      businessAddress: customer.businessAddress,
+      customerType: customer.customerType,
+      firstPurchaseDate: customer.firstPurchaseDate,
+    );
+  }
+
+  /// Convert UI Customer back to backend Customer
+  backend.Customer toBackend() {
+    return backend.Customer(
+      customerId: customerId,
+      name: name,
+      businessAddress: businessAddress,
+      phone: phone,
+      email: email,
+      customerType: customerType,
+      firstPurchaseDate: firstPurchaseDate,
+      createdAt: DateTime.now(),
+    );
+  }
 }
 
 class CustomerScreen extends StatefulWidget {
@@ -55,21 +92,9 @@ class _CustomerScreenState extends State<CustomerScreen> {
 
   Future<void> _loadCustomers() async {
     try {
-      final customerData = await CustomerDataService.fetchCustomersFromAPI();
-      // Convert CustomerData to Customer
-      final customers = customerData
-          .map((data) => Customer(
-                id: data.id,
-                name: data.name,
-                email: data.email,
-                phone: data.phone,
-                company: data.company,
-                address: data.company,
-                totalPurchases: 0.0,
-                orderCount: 0,
-                joinDate: DateTime.now(),
-                notes: '',
-              ))
+      final backendCustomers = await CustomerDataService.fetchCustomers();
+      final customers = backendCustomers
+          .map((c) => Customer.fromBackend(c))
           .toList();
       setState(() {
         _customers = customers;
@@ -88,8 +113,11 @@ class _CustomerScreenState extends State<CustomerScreen> {
       final matchSearch =
           _searchQuery.isEmpty ||
           c.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          c.company.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          c.email.toLowerCase().contains(_searchQuery.toLowerCase());
+          c.businessAddress.toLowerCase().contains(
+            _searchQuery.toLowerCase(),
+          ) ||
+          (c.email?.toLowerCase().contains(_searchQuery.toLowerCase()) ??
+              false);
       return matchSearch;
     }).toList();
   }
@@ -372,11 +400,7 @@ class _CustomerScreenState extends State<CustomerScreen> {
 
   Widget _buildCustomerList() {
     if (_isLoading) {
-      return Center(
-        child: CircularProgressIndicator(
-          color: AppTheme.primary,
-        ),
-      );
+      return Center(child: CircularProgressIndicator(color: AppTheme.primary));
     }
 
     final customers = _filteredCustomers;
@@ -534,13 +558,19 @@ class _CustomerScreenState extends State<CustomerScreen> {
         customer: customer,
         onEdit: (updated) {
           setState(() {
-            final idx = _customers.indexWhere((c) => c.id == updated.id);
+            final idx = _customers.indexWhere(
+              (c) => c.customerId == updated.customerId,
+            );
             if (idx >= 0) _customers[idx] = updated;
           });
           Navigator.pop(context);
         },
         onDelete: () {
-          setState(() => _customers.removeWhere((c) => c.id == customer.id));
+          setState(
+            () => _customers.removeWhere(
+              (c) => c.customerId == customer.customerId,
+            ),
+          );
           Navigator.pop(context);
         },
       ),
@@ -633,10 +663,14 @@ class _CustomerScreenState extends State<CustomerScreen> {
                   _customers.insert(
                     0,
                     Customer(
-                      id: 'C${DateTime.now().millisecondsSinceEpoch}',
+                      customerId: DateTime.now().millisecondsSinceEpoch ~/ 1000,
                       name: nameCtrl.text,
                       email: emailCtrl.text,
                       phone: phoneCtrl.text,
+                      businessAddress: companyCtrl.text.isNotEmpty
+                          ? companyCtrl.text
+                          : addressCtrl.text,
+                      customerType: 'regular',
                       company: companyCtrl.text,
                       address: addressCtrl.text,
                       totalPurchases: 0,
@@ -762,7 +796,7 @@ class _CustomerDetailSheet extends StatelessWidget {
                 _DetailRow(
                   icon: Icons.email_outlined,
                   label: 'Email',
-                  value: customer.email,
+                  value: customer.email ?? 'N/A',
                 ),
                 _DetailRow(
                   icon: Icons.phone_outlined,

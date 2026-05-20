@@ -10,5 +10,6 @@ export '../widgets/status_badge_widget.dart';
 export '../widgets/empty_state_widget.dart';
 export '../widgets/loading_skeleton_widget.dart';
 export '../models/user_model.dart';
+export '../models/all_models.dart';
 export '../utils/user_role_constants.dart';
 export '../utils/rbac_helper.dart';

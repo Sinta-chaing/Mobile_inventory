@@ -7,6 +7,7 @@ import '../../services/inventory_service.dart';
 import '../../services/customer_data_service.dart';
 import '../../services/supplier_data_service.dart';
 import '../../theme/app_theme.dart';
+import '../../models/all_models.dart' as backend;
 
 import '../../widgets/app_navigation.dart';
 import '../purchase_screen/purchase_screen.dart';
@@ -29,6 +30,27 @@ class BIDashboardScreen extends StatefulWidget {
   State<BIDashboardScreen> createState() => _BIDashboardScreenState();
 }
 
+// UI-specific Customer adapter for BI Dashboard
+class BiCustomer {
+  final int customerId;
+  final String name;
+  final String phone;
+
+  BiCustomer({
+    required this.customerId,
+    required this.name,
+    required this.phone,
+  });
+
+  static BiCustomer fromBackend(backend.Customer customer) {
+    return BiCustomer(
+      customerId: customer.customerId,
+      name: customer.name,
+      phone: customer.phone,
+    );
+  }
+}
+
 class _BIDashboardScreenState extends State<BIDashboardScreen> {
   int _selectedNavIndex = 4;
   String _selectedPeriod = 'This Month';
@@ -40,9 +62,9 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
   ];
 
   // Data from other screens
-  late List<Order> _orders;
-  late List<Customer> _customers;
-  late List<Supplier> _suppliers;
+  late List<backend.Invoice> _orders;
+  late List<BiCustomer> _customers;
+  late List<backend.Source> _suppliers;
   late List<StockItem> _stockItems;
 
   // Refresh state
@@ -62,15 +84,15 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
       final orders = await OrderService.loadOrders();
       final inventory = await InventoryService.loadInventory();
       final customersData = await CustomerDataService.loadCustomers();
-      final suppliers = await SupplierDataService.fetchSuppliersFromAPI();
+      final suppliers = await SupplierDataService.fetchSuppliers();
 
       if (mounted) {
         setState(() {
           _orders = orders;
           _stockItems = inventory;
-          // Convert CustomerData to Customer for compatibility with BI widgets
+          // Convert backend Customer to BiCustomer for BI dashboard
           _customers = customersData
-              .map((c) => Customer(id: c.id, name: c.name, phone: c.phone))
+              .map((c) => BiCustomer.fromBackend(c))
               .toList();
           _suppliers = suppliers;
           _isLoading = false;

@@ -52,7 +52,9 @@ class StockItem {
   factory StockItem.fromMap(Map<String, dynamic> map) {
     return StockItem(
       id: map['id'] as String,
-      inventoryId: map['inventoryId'] as String? ?? '', // Use first inventory ID if available
+      inventoryId:
+          map['inventoryId'] as String? ??
+          '', // Use first inventory ID if available
       name: map['name'] as String,
       sku: map['sku'] as String,
       category: map['category'] as String,
@@ -120,8 +122,8 @@ class _InventoryScreenState extends State<InventoryScreen>
 
   Future<void> _loadInventory() async {
     try {
-      // Fetch from API (will fallback to cache if API fails)
-      final items = await InventoryService.fetchProductsFromAPI();
+      // Fetch products from local storage
+      final items = await InventoryService.fetchProducts();
       if (mounted) {
         setState(() {
           _items = items;
@@ -206,16 +208,60 @@ class _InventoryScreenState extends State<InventoryScreen>
 
   void _deleteItem(StockItem item) {
     setState(() => _items.removeWhere((i) => i.id == item.id));
+
+    // Call API to delete from backend
+    _deleteItemFromBackend(item);
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${item.name} removed from inventory'),
         action: SnackBarAction(
           label: 'Undo',
           textColor: AppTheme.primaryLight,
-          onPressed: () => setState(() => _items.add(item)),
+          onPressed: () {
+            setState(() => _items.add(item));
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
         ),
       ),
     );
+  }
+
+  Future<void> _deleteItemFromBackend(StockItem item) async {
+    try {
+      final success = await InventoryService.deleteProduct(item.id);
+      if (!mounted) return;
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✓ ${item.name} deleted from backend'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        // Re-add the item if deletion failed
+        setState(() => _items.add(item));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✗ Failed to delete ${item.name}. Item restored.'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      // Re-add the item if there was an error
+      setState(() => _items.add(item));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✗ Error deleting item: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   @override

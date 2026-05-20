@@ -7,15 +7,18 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
 import '../../services/supplier_data_service.dart';
+import '../../models/all_models.dart' as backend;
 
+// UI-specific Supplier model
 class Supplier {
-  final String id;
+  final int sourceId;
   String name;
-  String contactPerson;
-  String email;
-  String phone;
-  String address;
-  String category;
+  String? sourceUrl;
+  String? contactPerson;
+  String? email;
+  String? phone;
+  String? address;
+  String? district;
   double totalOrders;
   int orderCount;
   double rating;
@@ -23,19 +26,49 @@ class Supplier {
   String notes;
 
   Supplier({
-    required this.id,
+    required this.sourceId,
     required this.name,
-    required this.contactPerson,
-    required this.email,
-    required this.phone,
-    required this.address,
-    required this.category,
-    required this.totalOrders,
-    required this.orderCount,
-    required this.rating,
-    required this.leadTimeDays,
+    this.sourceUrl,
+    this.contactPerson,
+    this.email,
+    this.phone,
+    this.address,
+    this.district,
+    this.totalOrders = 0.0,
+    this.orderCount = 0,
+    this.rating = 4.0,
+    this.leadTimeDays = 7,
     this.notes = '',
   });
+
+  /// Map from backend Source model to UI Supplier
+  static Supplier fromBackend(backend.Source source) {
+    return Supplier(
+      sourceId: source.sourceId,
+      name: source.name,
+      sourceUrl: source.sourceUrl,
+      contactPerson: source.contactPerson,
+      email: source.email,
+      phone: source.phone,
+      address: source.address,
+      district: source.district,
+    );
+  }
+
+  /// Convert UI Supplier back to backend Source
+  backend.Source toBackend() {
+    return backend.Source(
+      sourceId: sourceId,
+      name: name,
+      sourceUrl: sourceUrl,
+      contactPerson: contactPerson,
+      email: email,
+      phone: phone,
+      address: address,
+      district: district,
+      createdAt: DateTime.now(),
+    );
+  }
 }
 
 class SupplierScreen extends StatefulWidget {
@@ -59,7 +92,10 @@ class _SupplierScreenState extends State<SupplierScreen> {
 
   Future<void> _loadSuppliers() async {
     try {
-      final suppliers = await SupplierDataService.fetchSuppliersFromAPI();
+      final backendSuppliers = await SupplierDataService.fetchSuppliers();
+      final suppliers = backendSuppliers
+          .map((s) => Supplier.fromBackend(s))
+          .toList();
       setState(() {
         _suppliers = suppliers;
         _isLoading = false;
@@ -86,8 +122,8 @@ class _SupplierScreenState extends State<SupplierScreen> {
       final matchSearch =
           _searchQuery.isEmpty ||
           s.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          s.category.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          s.contactPerson.toLowerCase().contains(_searchQuery.toLowerCase());
+          (s.contactPerson?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
+          (s.address?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
       return matchSearch;
     }).toList();
   }
@@ -452,14 +488,15 @@ class _SupplierScreenState extends State<SupplierScreen> {
                         ],
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        supplier.category,
-                        style: GoogleFonts.dmSans(
-                          fontSize: 12,
-                          color: AppTheme.primary,
-                          fontWeight: FontWeight.w500,
+                      if (supplier.address != null)
+                        Text(
+                          supplier.address!,
+                          style: GoogleFonts.dmSans(
+                            fontSize: 12,
+                            color: AppTheme.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 4),
                       Row(
                         children: [
@@ -471,7 +508,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
                           const SizedBox(width: 3),
                           Expanded(
                             child: Text(
-                              supplier.contactPerson,
+                              supplier.contactPerson ?? 'N/A',
                               style: GoogleFonts.dmSans(
                                 fontSize: 11,
                                 color: AppTheme.outline,
@@ -539,13 +576,18 @@ class _SupplierScreenState extends State<SupplierScreen> {
         supplier: supplier,
         onEdit: (updated) {
           setState(() {
-            final idx = _suppliers.indexWhere((s) => s.id == updated.id);
+            final idx = _suppliers.indexWhere(
+              (s) => s.sourceId == updated.sourceId,
+            );
             if (idx >= 0) _suppliers[idx] = updated;
           });
           Navigator.pop(context);
         },
         onDelete: () {
-          setState(() => _suppliers.removeWhere((s) => s.id == supplier.id));
+          setState(
+            () =>
+                _suppliers.removeWhere((s) => s.sourceId == supplier.sourceId),
+          );
           Navigator.pop(context);
         },
       ),
@@ -620,10 +662,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
                 decoration: const InputDecoration(labelText: 'Phone'),
               ),
               const SizedBox(height: 10),
-              TextField(
-                controller: categoryCtrl,
-                decoration: const InputDecoration(labelText: 'Category'),
-              ),
               const SizedBox(height: 10),
               TextField(
                 controller: addressCtrl,
@@ -647,9 +685,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
                 'email': emailCtrl.text.trim(),
                 'phone': phoneCtrl.text.trim(),
                 'address': addressCtrl.text.trim(),
-                'category': categoryCtrl.text.isEmpty
-                    ? 'General'
-                    : categoryCtrl.text.trim(),
               };
 
               // Try to create supplier on backend; do not fallback to local/static data
@@ -676,11 +711,12 @@ class _SupplierScreenState extends State<SupplierScreen> {
 
                 if (retry == true) {
                   // Attempt again
-                  final retryCreated =
-                      await SupplierDataService.createSupplierOnAPI(payload);
+                  final retryCreated = await SupplierDataService.createSupplier(
+                    payload,
+                  );
                   if (retryCreated != null) {
                     setState(() {
-                      _suppliers.insert(0, retryCreated);
+                      _suppliers.insert(0, Supplier.fromBackend(retryCreated));
                     });
                     Navigator.pop(ctx); // close add dialog
                     return;
@@ -700,12 +736,10 @@ class _SupplierScreenState extends State<SupplierScreen> {
                 }
               }
 
-              final created = await SupplierDataService.createSupplierOnAPI(
-                payload,
-              );
+              final created = await SupplierDataService.createSupplier(payload);
               if (created != null) {
                 setState(() {
-                  _suppliers.insert(0, created);
+                  _suppliers.insert(0, Supplier.fromBackend(created));
                 });
                 Navigator.pop(ctx);
                 return;
@@ -797,13 +831,14 @@ class _SupplierDetailSheet extends StatelessWidget {
                               fontWeight: FontWeight.w700,
                             ),
                           ),
-                          Text(
-                            supplier.category,
-                            style: GoogleFonts.dmSans(
-                              fontSize: 14,
-                              color: AppTheme.primary,
+                          if (supplier.address != null)
+                            Text(
+                              supplier.address!,
+                              style: GoogleFonts.dmSans(
+                                fontSize: 14,
+                                color: AppTheme.primary,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -827,22 +862,22 @@ class _SupplierDetailSheet extends StatelessWidget {
                 _DetailRow(
                   icon: Icons.person_outline_rounded,
                   label: 'Contact',
-                  value: supplier.contactPerson,
+                  value: supplier.contactPerson ?? 'N/A',
                 ),
                 _DetailRow(
                   icon: Icons.email_outlined,
                   label: 'Email',
-                  value: supplier.email,
+                  value: supplier.email ?? 'N/A',
                 ),
                 _DetailRow(
                   icon: Icons.phone_outlined,
                   label: 'Phone',
-                  value: supplier.phone,
+                  value: supplier.phone ?? 'N/A',
                 ),
                 _DetailRow(
                   icon: Icons.location_on_outlined,
                   label: 'Address',
-                  value: supplier.address,
+                  value: supplier.address ?? 'N/A',
                 ),
                 _DetailRow(
                   icon: Icons.schedule_rounded,

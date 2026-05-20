@@ -1,191 +1,146 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../presentation/purchase_screen/purchase_screen.dart';
-import 'api_service.dart';
+import '../models/all_models.dart';
 
 class OrderService {
   static const String _ordersKey = 'orders_data';
   static late SharedPreferences _prefs;
-  static final ApiService _apiService = ApiService();
 
   // Initialize the service
   static Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
-    await _apiService.init();
   }
 
-  /// Fetch orders/invoices from Django backend
-  static Future<List<Order>> fetchOrdersFromAPI() async {
-    try {
-      final response = await _apiService.get<List<dynamic>>(
-        '/api/invoices/',
-        fromJson: (json) => (json as List).map((item) => item).toList(),
-      );
-
-      final orders = response.map((invoice) {
-        return Order(
-          orderId:
-              invoice['invoiceNumber']?.toString() ??
-              invoice['invoice_number']?.toString() ??
-              invoice['invoiceId']?.toString() ??
-              invoice['id']?.toString() ??
-              '',
-          createdDate: DateTime.parse(
-            invoice['createdAt'] as String? ??
-                invoice['created_at'] as String? ??
-                DateTime.now().toIso8601String(),
-          ),
-          customerName:
-              invoice['customerName'] ??
-              invoice['customer']?['name'] ??
-              'Unknown',
-          customerPhone:
-              invoice['customerPhone'] ?? invoice['customer']?['phone'] ?? '',
-          paymentMethod:
-              (invoice['paymentMethod'] as String?)?.toLowerCase() == 'khqr' ||
-                  (invoice['payment_method'] as String?)?.toLowerCase() ==
-                      'khqr'
-              ? PaymentMethod.khqr
-              : PaymentMethod.cash,
-          total: (invoice['grandTotal'] ?? invoice['total'] ?? 0).toDouble(),
-          status: (invoice['status'] as String?)?.toLowerCase() == 'paid'
-              ? OrderStatus.paid
-              : OrderStatus.pending,
-          paidAt: invoice['paidAt'] != null
-              ? DateTime.parse(invoice['paidAt'] as String)
-              : null,
-          createdBy:
-              invoice['createdByUser']?['username'] ??
-              invoice['created_by']?['username'] ??
-              'System',
-          items:
-              (invoice['purchases'] as List? ??
-                      invoice['invoice_items'] as List?)
-                  ?.map(
-                    (item) => OrderItem(
-                      itemName:
-                          item['product']?['productName'] ??
-                          item['product']?['name'] ??
-                          'Unknown',
-                      quantity: item['quantity'] as int? ?? 0,
-                      unitPrice:
-                          (item['pricePerUnit'] ?? item['unit_price'] ?? 0)
-                              .toDouble(),
-                      discount: (item['discount'] ?? 0).toDouble(),
-                    ),
-                  )
-                  .toList() ??
-              [],
-        );
-      }).toList();
-
-      // Cache to local storage
-      await saveOrders(orders);
-      return orders;
-    } catch (e) {
-      print('❌ Error fetching orders from API: $e');
-      // Fallback to cached data
-      return await loadOrders();
-    }
+  /// Fetch orders from local cache
+  /// (Backend API integration removed - using local storage only)
+  static Future<List<Invoice>> fetchOrders() async {
+    return await loadOrders();
   }
 
-  /// Create new order/invoice
-  static Future<Order?> createOrder(Map<String, dynamic> orderData) async {
+  /// Create new order and save to local storage
+  static Future<Invoice?> createOrder(Map<String, dynamic> orderData) async {
     try {
-      final response = await _apiService.post(
-        '/api/invoices/',
-        data: orderData,
-        fromJson: (json) => json,
+      final purchases = (orderData['items'] ?? []) as List;
+      final purchasesList = purchases
+          .asMap()
+          .entries
+          .map(
+            (e) => Purchase(
+              purchaseId: e.key,
+              invoiceId: 0, // Will be set when added to invoice
+              productId: e.value['productId'],
+              quantity: e.value['quantity'] ?? 0,
+              pricePerUnit: (e.value['pricePerUnit'] ?? 0).toDouble(),
+              discount: (e.value['discount'] ?? 0).toDouble(),
+              subtotal: (e.value['subtotal'] ?? 0).toDouble(),
+              createdAt: DateTime.now(),
+            ),
+          )
+          .toList();
+
+      final invoice = Invoice(
+        invoiceId: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        invoiceNumber: orderData['invoiceNumber'],
+        customerId: orderData['customerId'],
+        customerName: orderData['customerName'] ?? 'Unknown',
+        customerPhone: orderData['customerPhone'],
+        createdByUserId: orderData['createdByUserId'],
+        totalBeforeDiscount: (orderData['totalBeforeDiscount'] ?? 0).toDouble(),
+        discount: (orderData['discount'] ?? 0).toDouble(),
+        tax: (orderData['tax'] ?? 0).toDouble(),
+        grandTotal: (orderData['grandTotal'] ?? 0).toDouble(),
+        paymentMethod: orderData['paymentMethod'] ?? 'Cash',
+        note: orderData['note'],
+        status: 'Pending',
+        paidAt: null,
+        createdAt: DateTime.now(),
+        purchases: purchasesList,
       );
 
-      return Order(
-        orderId:
-            response['invoiceNumber']?.toString() ??
-            response['invoice_number']?.toString() ??
-            response['invoiceId']?.toString() ??
-            response['id']?.toString() ??
-            '',
-        createdDate: DateTime.parse(
-          response['createdAt'] as String? ??
-              response['created_at'] as String? ??
-              DateTime.now().toIso8601String(),
-        ),
-        customerName:
-            response['customerName'] ??
-            response['customer']?['name'] ??
-            'Unknown',
-        customerPhone:
-            response['customerPhone'] ?? response['customer']?['phone'] ?? '',
-        paymentMethod:
-            (response['paymentMethod'] as String?)?.toLowerCase() == 'khqr' ||
-                (response['payment_method'] as String?)?.toLowerCase() == 'khqr'
-            ? PaymentMethod.khqr
-            : PaymentMethod.cash,
-        total: (response['grandTotal'] ?? response['total'] ?? 0).toDouble(),
-        status: (response['status'] as String?)?.toLowerCase() == 'paid'
-            ? OrderStatus.paid
-            : OrderStatus.pending,
-        paidAt: response['paidAt'] != null
-            ? DateTime.parse(response['paidAt'] as String)
-            : null,
-        createdBy:
-            response['createdByUser']?['username'] ??
-            response['created_by']?['username'] ??
-            'System',
-        items: [],
-      );
+      // Load existing invoices and add new one
+      final invoices = await loadOrders();
+      invoices.add(invoice);
+
+      // Save to local storage
+      await saveOrders(invoices);
+      print('✅ Invoice created locally: ${invoice.invoiceNumber}');
+
+      return invoice;
     } catch (e) {
-      print('❌ Error creating order: $e');
+      print('❌ Error creating invoice: $e');
       return null;
     }
   }
 
-  /// Update order status
-  static Future<bool> updateOrderStatus(String orderId, String status) async {
+  /// Update order status in local storage
+  static Future<bool> updateOrderStatus(int invoiceId, String status) async {
     try {
-      // Capitalize status to match Django model choices (Paid, Pending, Cancelled)
-      final capitalizedStatus =
-          status[0].toUpperCase() + status.substring(1).toLowerCase();
-      await _apiService.put(
-        '/api/invoices/$orderId/',
-        data: {'status': capitalizedStatus},
-        fromJson: (json) => json,
+      final invoices = await loadOrders();
+      final index = invoices.indexWhere((inv) => inv.invoiceId == invoiceId);
+
+      if (index == -1) {
+        print('❌ Invoice not found: $invoiceId');
+        return false;
+      }
+
+      // Update status
+      final invoice = invoices[index];
+      final newStatus = status.toLowerCase() == 'paid' ? 'Paid' : 'Pending';
+
+      invoices[index] = Invoice(
+        invoiceId: invoice.invoiceId,
+        invoiceNumber: invoice.invoiceNumber,
+        customerId: invoice.customerId,
+        customerName: invoice.customerName,
+        customerPhone: invoice.customerPhone,
+        createdByUserId: invoice.createdByUserId,
+        totalBeforeDiscount: invoice.totalBeforeDiscount,
+        discount: invoice.discount,
+        tax: invoice.tax,
+        grandTotal: invoice.grandTotal,
+        paymentMethod: invoice.paymentMethod,
+        note: invoice.note,
+        status: newStatus,
+        paidAt: newStatus == 'Paid' ? DateTime.now() : invoice.paidAt,
+        khqrCodeString: invoice.khqrCodeString,
+        khqrMd5: invoice.khqrMd5,
+        khqrTransactionHash: invoice.khqrTransactionHash,
+        khqrShortHash: invoice.khqrShortHash,
+        khqrDeeplink: invoice.khqrDeeplink,
+        khqrLastCheckedAt: invoice.khqrLastCheckedAt,
+        khqrPaymentData: invoice.khqrPaymentData,
+        createdAt: invoice.createdAt,
+        purchases: invoice.purchases,
       );
+
+      // Save updated invoices
+      await saveOrders(invoices);
+      print('✅ Invoice status updated: $invoiceId -> $status');
       return true;
     } catch (e) {
-      print('❌ Error updating order: $e');
+      print('❌ Error updating invoice: $e');
       return false;
     }
   }
 
-  /// Mark order as paid
-  static Future<bool> markOrderAsPaid(String orderId) async {
-    try {
-      await _apiService.put(
-        '/api/invoices/$orderId/',
-        data: {'status': 'Paid', 'paidAt': DateTime.now().toIso8601String()},
-        fromJson: (json) => json,
-      );
-      return true;
-    } catch (e) {
-      print('❌ Error marking order as paid: $e');
-      return false;
-    }
+  /// Mark order as paid in local storage
+  static Future<bool> markOrderAsPaid(int invoiceId) async {
+    return updateOrderStatus(invoiceId, 'paid');
   }
 
   // Save orders to persistent storage
-  static Future<void> saveOrders(List<Order> orders) async {
+  static Future<void> saveOrders(List<Invoice> invoices) async {
     try {
-      final jsonData = orders.map((order) => _orderToJson(order)).toList();
+      final jsonData = invoices.map((invoice) => invoice.toJson()).toList();
       await _prefs.setString(_ordersKey, jsonEncode(jsonData));
-      print('✅ Saved ${orders.length} orders to SharedPreferences');
+      print('✅ Saved ${invoices.length} invoices to SharedPreferences');
     } catch (e) {
-      print('❌ Error saving orders: $e');
+      print('❌ Error saving invoices: $e');
     }
   }
 
   // Load orders from persistent storage
-  static Future<List<Order>> loadOrders() async {
+  static Future<List<Invoice>> loadOrders() async {
     try {
       final jsonString = _prefs.getString(_ordersKey);
       print(
@@ -195,86 +150,22 @@ class OrderService {
         return [];
       }
       final jsonData = jsonDecode(jsonString) as List;
-      print('✅ Loaded ${jsonData.length} orders from SharedPreferences');
-      return jsonData.map((item) => _orderFromJson(item)).toList();
+      print('✅ Loaded ${jsonData.length} invoices from SharedPreferences');
+      return jsonData
+          .map((item) => Invoice.fromJson(item as Map<String, dynamic>))
+          .toList();
     } catch (e) {
-      print('❌ Error loading orders: $e');
+      print('❌ Error loading invoices: $e');
       return [];
     }
   }
 
-  // Convert Order to JSON
-  static Map<String, dynamic> _orderToJson(Order order) {
-    return {
-      'orderId': order.orderId,
-      'createdDate': order.createdDate.toIso8601String(),
-      'customerName': order.customerName,
-      'customerPhone': order.customerPhone,
-      'paymentMethod': order.paymentMethod == PaymentMethod.cash
-          ? 'cash'
-          : 'khqr',
-      'total': order.total,
-      'status': order.status == OrderStatus.paid ? 'paid' : 'pending',
-      'paidAt': order.paidAt?.toIso8601String(),
-      'createdBy': order.createdBy,
-      'items': order.items
-          .map(
-            (item) => {
-              'itemName': item.itemName,
-              'quantity': item.quantity,
-              'unitPrice': item.unitPrice,
-              'discount': item.discount,
-            },
-          )
-          .toList(),
-    };
-  }
-
-  // Convert JSON to Order
-  static Order _orderFromJson(Map<String, dynamic> json) {
-    return Order(
-      orderId: json['orderId'] as String,
-      createdDate: DateTime.parse(json['createdDate'] as String),
-      customerName: json['customerName'] as String,
-      customerPhone: json['customerPhone'] as String,
-      paymentMethod: (json['paymentMethod'] as String) == 'cash'
-          ? PaymentMethod.cash
-          : PaymentMethod.khqr,
-      total: (json['total'] as num).toDouble(),
-      status: (json['status'] as String) == 'paid'
-          ? OrderStatus.paid
-          : OrderStatus.pending,
-      paidAt: json['paidAt'] != null
-          ? DateTime.parse(json['paidAt'] as String)
-          : null,
-      createdBy: json['createdBy'] as String,
-      items: (json['items'] as List)
-          .map(
-            (item) => OrderItem(
-              itemName: item['itemName'] as String,
-              quantity: item['quantity'] as int,
-              unitPrice: (item['unitPrice'] as num).toDouble(),
-              discount: (item['discount'] as num).toDouble(),
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  // Verify KHQR payment status
+  /// Verify payment status with KHQR payment gateway (Stub - not functional)
+  /// Since there's no backend API, this always returns false
   static Future<bool> verifyKhqrPayment(String orderId, double amount) async {
-    try {
-      // Call Django backend to verify KHQR payment
-      final response = await _apiService.post(
-        '/api/invoices/$orderId/verify-payment/',
-        data: {'amount': amount},
-        fromJson: (json) => json,
-      );
-
-      return response['verified'] ?? false;
-    } catch (e) {
-      print('❌ Payment verification error: $e');
-      return false;
-    }
+    print(
+      '⚠️ Payment verification stub called for order $orderId (amount: $amount)',
+    );
+    return false;
   }
 }

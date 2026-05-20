@@ -1,79 +1,75 @@
 import 'dart:convert';
-import '../presentation/supplier_screen/supplier_screen.dart';
-import 'api_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/all_models.dart';
 
 class SupplierDataService {
-  static final ApiService _apiService = ApiService();
+  static const String _suppliersKey = 'suppliers_data';
+  static late SharedPreferences _prefs;
 
   static Future<void> init() async {
-    await _apiService.init();
+    _prefs = await SharedPreferences.getInstance();
   }
 
-  /// Fetch suppliers from Django backend. Throws on network/API errors.
-  static Future<List<Supplier>> fetchSuppliersFromAPI() async {
-    try {
-      final response = await _apiService.get<List<dynamic>>(
-        '/api/sources/',
-        fromJson: (json) => (json as List).map((item) => item).toList(),
-      );
-
-      final suppliers = response.map((source) {
-        return Supplier(
-          id: source['sourceId']?.toString() ?? source['id']?.toString() ?? '',
-          name: source['name'] ?? 'Unknown',
-          contactPerson: source['contactPerson'] ?? '',
-          email: source['email'] ?? '',
-          phone: source['phone'] ?? '',
-          address: source['address'] ?? '',
-          category: source['category'] ?? '',
-          totalOrders: 0.0,
-          orderCount: 0,
-          rating: 4.0,
-          leadTimeDays: 7,
-          notes: source['notes'] ?? '',
-        );
-      }).toList();
-
-      return suppliers;
-    } catch (e) {
-      print('Error fetching suppliers from API: $e');
-      rethrow;
-    }
+  /// Fetch suppliers from local cache
+  /// (Backend API integration removed - using local storage only)
+  static Future<List<Source>> fetchSuppliers() async {
+    return await loadSuppliers();
   }
 
-  /// Create a new supplier on the backend. Returns created Supplier or null if API call fails.
-  static Future<Supplier?> createSupplierOnAPI(
-    Map<String, dynamic> data,
-  ) async {
+  /// Create a new supplier and save to local storage
+  static Future<Source?> createSupplier(Map<String, dynamic> data) async {
     try {
-      final response = await _apiService.post<Map<String, dynamic>>(
-        '/api/sources/',
-        data: data,
-        fromJson: (json) => json as Map<String, dynamic>,
+      final supplier = Source(
+        sourceId: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        name: data['name'] ?? 'Unknown',
+        sourceUrl: data['sourceUrl'],
+        contactPerson: data['contactPerson'],
+        email: data['email'],
+        phone: data['phone'],
+        address: data['address'],
+        district: data['district'],
+        createdAt: DateTime.now(),
       );
 
-      final supplier = Supplier(
-        id:
-            response['sourceId']?.toString() ??
-            response['id']?.toString() ??
-            '',
-        name: response['name'] ?? data['name'] ?? 'Unknown',
-        contactPerson: response['contactPerson'] ?? data['contactPerson'] ?? '',
-        email: response['email'] ?? data['email'] ?? '',
-        phone: response['phone'] ?? data['phone'] ?? '',
-        address: response['address'] ?? data['address'] ?? '',
-        category: response['category'] ?? data['category'] ?? '',
-        totalOrders: 0.0,
-        orderCount: 0,
-        rating: 4.0,
-        leadTimeDays: 7,
-        notes: response['notes'] ?? data['notes'] ?? '',
-      );
+      // Load existing suppliers and add new one
+      final suppliers = await loadSuppliers();
+      suppliers.add(supplier);
+
+      // Save to local storage
+      await saveSuppliers(suppliers);
+      print('✅ Supplier created locally: ${supplier.name}');
 
       return supplier;
     } catch (e) {
-      print('Error creating supplier on API: $e');
+      print('❌ Error creating supplier: $e');
       return null;
+    }
+  }
+
+  /// Save suppliers to local cache
+  static Future<void> saveSuppliers(List<Source> suppliers) async {
+    try {
+      final jsonData = suppliers.map((s) => s.toJson()).toList();
+      await _prefs.setString(_suppliersKey, jsonEncode(jsonData));
+    } catch (e) {
+      print('❌ Error saving suppliers: $e');
+    }
+  }
+
+  /// Load suppliers from local cache
+  static Future<List<Source>> loadSuppliers() async {
+    try {
+      final jsonString = _prefs.getString(_suppliersKey);
+      if (jsonString == null || jsonString.isEmpty) {
+        return [];
+      }
+      final jsonData = jsonDecode(jsonString) as List;
+      return jsonData
+          .map((item) => Source.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      print('❌ Error loading suppliers: $e');
+      return [];
     }
   }
 }

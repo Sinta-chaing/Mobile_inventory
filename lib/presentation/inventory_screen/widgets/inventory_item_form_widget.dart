@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 import '../../../theme/app_theme.dart';
 import '../../../services/supplier_data_service.dart';
 import '../../../services/api_service.dart';
@@ -75,14 +77,18 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
   }
 
   // Supplier data - initialize with empty list, will be populated in initState
-  List<Supplier> _suppliers = [];
-  List<Supplier> _filteredSuppliers = [];
-  String? _selectedSupplierId;
+  List<backend.Source> _suppliers = [];
+  List<backend.Source> _filteredSuppliers = [];
+  int? _selectedSupplierId;
   bool _showSupplierDropdown = false;
   bool _supplierMissing = false;
   // Subcategory data
   List<Map<String, dynamic>> _subcategories = [];
   int? _selectedSubcategoryId;
+
+  // Image picker data
+  File? _selectedImageFile;
+  final ImagePicker _imagePicker = ImagePicker();
 
   @override
   void initState() {
@@ -124,7 +130,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
 
   Future<void> _loadSuppliers() async {
     try {
-      final suppliers = await SupplierDataService.fetchSuppliersFromAPI();
+      final suppliers = await SupplierDataService.fetchSuppliers();
       setState(() {
         _suppliers = suppliers;
         _filteredSuppliers = suppliers;
@@ -138,7 +144,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         if (found.isNotEmpty) {
           final match = found.first;
           setState(() {
-            _selectedSupplierId = match.id;
+            _selectedSupplierId = match.sourceId;
             _supplierController.text = match.name;
             _supplierMissing = false;
           });
@@ -210,18 +216,49 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
             .where(
               (s) =>
                   (s.name.toLowerCase().contains(query.toLowerCase()) ||
-                  s.category.toLowerCase().contains(query.toLowerCase())),
+                  (s.address?.toLowerCase().contains(query.toLowerCase()) ??
+                      false)),
             )
             .toList();
       }
     });
   }
 
-  void _selectSupplier(Supplier supplier) {
+  void _selectSupplier(backend.Source supplier) {
     setState(() {
-      _selectedSupplierId = supplier.id;
+      _selectedSupplierId = supplier.sourceId;
       _supplierController.text = supplier.name;
       _showSupplierDropdown = false;
+    });
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final pickedFile = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _selectedImageFile = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error picking image: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _clearImage() {
+    setState(() {
+      _selectedImageFile = null;
     });
   }
 
@@ -247,6 +284,52 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
 
     try {
       final isEdit = widget.existingItem != null;
+
+      // Ensure we have a subcategoryId - required for backend
+      if (_selectedSubcategoryId == null && _subcategories.isNotEmpty) {
+        // Try to find subcategory matching the selected category
+        final match = _subcategories.firstWhere(
+          (sc) =>
+              (sc['name'] as String).toLowerCase() ==
+              _selectedCategory.toLowerCase(),
+          orElse: () => {},
+        );
+        if (match.isNotEmpty) {
+          _selectedSubcategoryId = match['subcategoryId'] as int?;
+        } else if (_subcategories.isNotEmpty) {
+          // Fallback to first subcategory if no match
+          _selectedSubcategoryId =
+              _subcategories.first['subcategoryId'] as int?;
+        }
+      }
+
+      // Upload image if selected
+      String imageUrl = widget.existingItem?.imageUrl ?? '';
+      if (_selectedImageFile != null) {
+        print('Uploading image: ${_selectedImageFile!.path}');
+        // Upload to API - use a multipart request for the image
+        try {
+          final apiService = ApiService();
+          final uploadedUrl = await apiService.uploadFile<Map<String, dynamic>>(
+            '/api/products/upload-image/',
+            _selectedImageFile!,
+            fromJson: (json) => json as Map<String, dynamic>,
+          );
+
+          // Extract image URL from response
+          if (uploadedUrl.containsKey('image')) {
+            imageUrl = uploadedUrl['image'] as String;
+            print('✓ Image uploaded successfully: $imageUrl');
+          } else if (uploadedUrl.containsKey('url')) {
+            imageUrl = uploadedUrl['url'] as String;
+            print('✓ Image uploaded successfully: $imageUrl');
+          }
+        } catch (e) {
+          print('Warning: Image upload failed: $e');
+          // Continue without image if upload fails
+        }
+      }
+
       final item = StockItem(
         id:
             widget.existingItem?.id ??
@@ -260,22 +343,94 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         unitCost: double.parse(_costController.text),
         unitPrice: double.parse(_priceController.text),
         supplierName: _supplierController.text.trim(),
-        imageUrl: widget.existingItem?.imageUrl ?? '',
-        semanticLabel: widget.existingItem?.semanticLabel ?? '',
+        imageUrl: imageUrl,
+        semanticLabel: _nameController.text.trim(),
       );
 
       // Call API to update product
       if (isEdit) {
-        // Update quantity through inventory endpoint using inventoryId
-        final success = await InventoryService.updateProductQuantity(
+        // Update full product details (name, SKU, prices, etc.)
+        final Map<String, dynamic> updatePayload = {
+          'name': item.name,
+          'sku': item.sku,
+          'unitCost': item.unitCost,
+          'unitPrice': item.unitPrice,
+          'supplierName': item.supplierName,
+        };
+
+        print('=== FORM WIDGET UPDATE DEBUG ===');
+        print(
+          'Item unitCost: ${item.unitCost} (type: ${item.unitCost.runtimeType})',
+        );
+        print(
+          'Item unitPrice: ${item.unitPrice} (type: ${item.unitPrice.runtimeType})',
+        );
+        print('costController text: ${_costController.text}');
+        print('priceController text: ${_priceController.text}');
+        print('_selectedSubcategoryId: $_selectedSubcategoryId');
+        print('_subcategories: $_subcategories');
+        print('updatePayload: $updatePayload');
+        print('================================');
+
+        // CRITICAL: Include subcategory ID if selected
+        if (_selectedSubcategoryId != null) {
+          updatePayload['subcategoryId'] = _selectedSubcategoryId;
+          print('Using selected subcategoryId: $_selectedSubcategoryId');
+        } else {
+          // If no subcategory selected, try to find one by name or use fallback
+          print(
+            'No subcategoryId selected! Looking for match by category name: $_selectedCategory',
+          );
+          final match = _subcategories.firstWhere(
+            (sc) =>
+                (sc['name'] as String).toLowerCase() ==
+                _selectedCategory.toLowerCase(),
+            orElse: () => {},
+          );
+          if (match.isNotEmpty) {
+            final scId = match['subcategoryId'] as int?;
+            if (scId != null) {
+              updatePayload['subcategoryId'] = scId;
+              print('Found matching subcategoryId: $scId');
+            }
+          } else if (_subcategories.isNotEmpty) {
+            // Fallback to first subcategory
+            final scId = _subcategories.first['subcategoryId'] as int?;
+            if (scId != null) {
+              updatePayload['subcategoryId'] = scId;
+              print('Using fallback subcategoryId: $scId');
+            }
+          }
+        }
+
+        // Include supplier/source ID if selected
+        if (_selectedSupplierId != null) {
+          updatePayload['sourceId'] = _selectedSupplierId;
+        }
+
+        // Only include image if it was updated
+        if (imageUrl.isNotEmpty && imageUrl != widget.existingItem?.imageUrl) {
+          updatePayload['image'] = imageUrl;
+        }
+
+        final success = await InventoryService.updateProduct(
           item.id,
-          item.inventoryId,
-          item.quantity,
+          updatePayload,
         );
 
         if (!mounted) return;
 
         if (success) {
+          // Also update quantity through inventory endpoint if it changed
+          if (widget.existingItem!.quantity != item.quantity &&
+              item.inventoryId.isNotEmpty) {
+            await InventoryService.updateProductQuantity(
+              item.id,
+              item.inventoryId,
+              item.quantity,
+            );
+          }
+
           widget.onSave(item);
           Navigator.pop(context);
           ScaffoldMessenger.of(context).showSnackBar(
@@ -307,11 +462,40 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
           'supplierName': item.supplierName,
         };
 
-        if (_selectedSupplierId != null &&
-            _selectedSupplierId != 'custom' &&
-            _selectedSupplierId!.isNotEmpty) {
-          final sid = int.tryParse(_selectedSupplierId!);
-          payload['source'] = sid ?? _selectedSupplierId;
+        // CRITICAL: Include subcategory ID for new product
+        if (_selectedSubcategoryId != null) {
+          payload['subcategoryId'] = _selectedSubcategoryId;
+          print('Creating product with subcategoryId: $_selectedSubcategoryId');
+        } else if (_subcategories.isNotEmpty) {
+          // Try to find matching subcategory by name
+          final match = _subcategories.firstWhere(
+            (sc) =>
+                (sc['name'] as String).toLowerCase() ==
+                _selectedCategory.toLowerCase(),
+            orElse: () => {},
+          );
+          if (match.isNotEmpty) {
+            final scId = match['subcategoryId'] as int?;
+            if (scId != null) {
+              payload['subcategoryId'] = scId;
+              print('Creating product with matched subcategoryId: $scId');
+            }
+          } else {
+            // Fallback to first subcategory
+            final scId = _subcategories.first['subcategoryId'] as int?;
+            if (scId != null) {
+              payload['subcategoryId'] = scId;
+              print('Creating product with fallback subcategoryId: $scId');
+            }
+          }
+        }
+
+        if (imageUrl.isNotEmpty) {
+          payload['image'] = imageUrl;
+        }
+
+        if (_selectedSupplierId != null) {
+          payload['sourceId'] = _selectedSupplierId;
         }
 
         final newProduct = await InventoryService.createProduct(payload);
@@ -424,6 +608,9 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
                       validator: (v) =>
                           (v == null || v.isEmpty) ? 'Name is required' : null,
                     ),
+                    const SizedBox(height: 16),
+                    // Image picker section
+                    _buildImagePickerSection(),
                     const SizedBox(height: 12),
                     Row(
                       children: [
@@ -658,6 +845,155 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
     );
   }
 
+  Widget _buildImagePickerSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionLabel('Product Image'),
+        const SizedBox(height: 10),
+        // Image preview
+        Container(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: _selectedImageFile != null
+                  ? AppTheme.primary
+                  : AppTheme.outline,
+              width: _selectedImageFile != null ? 2 : 1,
+            ),
+            borderRadius: BorderRadius.circular(8),
+            color: AppTheme.background,
+          ),
+          child: _selectedImageFile != null
+              ? Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(7),
+                      child: Image.file(
+                        _selectedImageFile!,
+                        height: 120,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withAlpha(51),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: IconButton(
+                          onPressed: _clearImage,
+                          icon: const Icon(Icons.close, size: 20),
+                          color: AppTheme.error,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : widget.existingItem?.imageUrl != null &&
+                    widget.existingItem!.imageUrl.isNotEmpty
+              ? Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(7),
+                      child: Image.network(
+                        widget.existingItem!.imageUrl,
+                        height: 120,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            height: 120,
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              Icons.image_not_supported_outlined,
+                              size: 48,
+                              color: AppTheme.outline,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withAlpha(51),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: IconButton(
+                          onPressed: _pickImage,
+                          icon: const Icon(Icons.edit, size: 20),
+                          color: AppTheme.primary,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : InkWell(
+                  onTap: _pickImage,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.image_outlined,
+                          size: 48,
+                          color: AppTheme.primary,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Add Product Image',
+                          style: GoogleFonts.ibmPlexSans(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Tap to select from gallery',
+                          style: GoogleFonts.ibmPlexSans(
+                            fontSize: 12,
+                            color: AppTheme.outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSupplierSearchField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -712,7 +1048,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
                 itemCount: _filteredSuppliers.length,
                 itemBuilder: (context, index) {
                   final supplier = _filteredSuppliers[index];
-                  final isSelected = _selectedSupplierId == supplier.id;
+                  final isSelected = _selectedSupplierId == supplier.sourceId;
                   return Material(
                     child: InkWell(
                       onTap: () => _selectSupplier(supplier),
