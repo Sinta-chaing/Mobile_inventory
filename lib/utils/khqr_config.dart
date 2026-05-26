@@ -7,9 +7,9 @@ class KhqrConfig {
 
   static String merchantId() => 'TEMP001';
 
-  static String merchantName() => 'InvenTrack Store';
+  static String merchantName() => 'Oun MengHeang';
 
-  static String currency() => 'USD';
+  static String currency() => 'KHR';
 
   static String merchantCity() => 'Phnom Penh';
 
@@ -19,16 +19,19 @@ class KhqrConfig {
 
   static String terminalLabel() => 'InvenTrack';
 
+  static KhqrCurrency khqrCurrency() => KhqrCurrency.usd;
+
   static MerchantInfo merchantInfo({
     required double amountInUsd,
     required int expirationTimestamp,
+    String? merchantName,
   }) {
     return MerchantInfo(
       bakongAccountId: bakongAccountId(),
       acquiringBank: acquiringBank(),
       merchantId: merchantId(),
-      merchantName: merchantName(),
-      currency: KhqrCurrency.usd,
+      merchantName: merchantName ?? KhqrConfig.merchantName(),
+      currency: khqrCurrency(),
       amount: amountInUsd,
       expirationTimestamp: expirationTimestamp,
     );

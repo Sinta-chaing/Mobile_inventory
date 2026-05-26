@@ -292,6 +292,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
       final info = KhqrConfig.merchantInfo(
         amountInUsd: amountInUsd,
         expirationTimestamp: expire,
+        merchantName: KhqrConfig.storeLabel(),
       );
 
       // Generate KHQR

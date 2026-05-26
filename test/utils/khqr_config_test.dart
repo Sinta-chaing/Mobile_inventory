@@ -5,12 +5,12 @@ import 'package:khqr_sdk/khqr_sdk.dart';
 void main() {
   group('KhqrConfig', () {
     test('exposes consistent merchant branding values', () {
-      expect(KhqrConfig.merchantName(), 'InvenTrack Store');
+      expect(KhqrConfig.merchantName(), 'Oun MengHeang');
       expect(KhqrConfig.storeLabel(), 'InvenTrack Store');
-      expect(KhqrConfig.currency(), 'USD');
+      expect(KhqrConfig.currency(), 'KHR');
     });
 
-    test('builds merchant info from shared config functions', () {
+    test('builds default merchant info from shared config functions', () {
       final info = KhqrConfig.merchantInfo(
         amountInUsd: 12.5,
         expirationTimestamp: 123456789,
@@ -21,9 +21,19 @@ void main() {
       expect(info.acquiringBank, KhqrConfig.acquiringBank());
       expect(info.merchantId, KhqrConfig.merchantId());
       expect(info.merchantName, KhqrConfig.merchantName());
-      expect(info.currency, KhqrCurrency.usd);
+      expect(info.currency, KhqrConfig.khqrCurrency());
       expect(info.amount, 12.5);
       expect(info.expirationTimestamp, 123456789);
+    });
+
+    test('allows overriding merchant name for store-specific QR generation', () {
+      final info = KhqrConfig.merchantInfo(
+        amountInUsd: 12.5,
+        expirationTimestamp: 123456789,
+        merchantName: KhqrConfig.storeLabel(),
+      );
+
+      expect(info.merchantName, KhqrConfig.storeLabel());
     });
   });
 }
