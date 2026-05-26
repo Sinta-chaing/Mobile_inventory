@@ -9,6 +9,7 @@ import '../../services/inventory_service.dart';
 import '../../services/customer_data_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/invoice_pdf_generator.dart';
+import '../../utils/khqr_config.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
 import 'package:khqr_sdk/khqr_sdk.dart';
@@ -288,13 +289,8 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
       final expire = DateTime.now().millisecondsSinceEpoch + (10 * 3600000);
 
       // Create merchant info
-      final info = MerchantInfo(
-        bakongAccountId: 'oun_mengheang@aclb',
-        acquiringBank: 'ACLEDA Bank',
-        merchantId: 'TEMP001',
-        merchantName: 'InvenTrack Store',
-        currency: KhqrCurrency.usd,
-        amount: amountInUsd,
+      final info = KhqrConfig.merchantInfo(
+        amountInUsd: amountInUsd,
         expirationTimestamp: expire,
       );
 
