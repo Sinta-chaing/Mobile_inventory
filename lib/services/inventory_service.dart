@@ -1,39 +1,143 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
 import '../presentation/inventory_screen/inventory_screen.dart';
+import './api_service.dart';
+import './config_service.dart';
 
 class InventoryService {
   static const String _inventoryKey = 'inventory_data';
   static late SharedPreferences _prefs;
+  static late ApiService _apiService;
 
   static Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+    _apiService = ApiService();
   }
 
-  /// Fetch products from local cache
-  /// (Backend API integration removed - using local storage only)
+  static Future<Map<String, dynamic>> searchProductsByImage(
+    XFile imageFile, {
+    Map<String, int>? cropRect,
+    double scoreThreshold = 0.3,
+  }) async {
+    try {
+      final extraFields = <String, dynamic>{};
+      if (cropRect != null) {
+        extraFields['crop'] = json.encode(cropRect);
+      }
+      extraFields['score_threshold'] = scoreThreshold.toStringAsFixed(2);
+      final response = await _apiService.uploadFile(
+        '/api/search-products/',
+        imageFile,
+        fromJson: (data) => data,
+        fieldName: 'file',
+        extraFields: extraFields,
+      );
+      final List results = response['results'] ?? [];
+      final List detections = response['detections'] ?? [];
+      return {
+        'productIds': results.map((r) => r['product_id'] as int).toList(),
+        'scores': results.map((r) => (r['similarity_score'] as num).toDouble()).toList(),
+        'detections': detections,
+      };
+    } catch (e) {
+      print('❌ Image search failed: $e');
+      return {
+        'productIds': <int>[],
+        'scores': <double>[],
+        'detections': <Map<String, dynamic>>[],
+      };
+    }
+  }
+
+  static StockItem _mapInventoryToStockItem(Map<String, dynamic> map) {
+    final config = ConfigService();
+    final rawImage = (map['productImage'] ?? map['image'] ?? '').toString();
+
+    return StockItem(
+      id: map['product']?.toString() ?? '',
+      inventoryId: map['inventoryId']?.toString() ?? '',
+      name: map['productName'] ?? 'Unknown Product',
+      sku: map['productSku'] ?? '',
+      category: 'Stock',
+      quantity: map['quantity'] ?? 0,
+      reorderLevel: map['reorderLevel'] ?? 10,
+      unitCost: _parseDouble(map['costPrice'] ?? 0),
+      unitPrice: _parseDouble(map['salePrice'] ?? 0),
+      supplierName: map['supplierName'] ?? '',
+      imageUrl: config.resolveMediaUrl(rawImage),
+      semanticLabel: map['productName'] ?? 'Product',
+    );
+  }
+
+  /// Fetch inventory from backend API
+  /// Falls back to local cache if API fails
   static Future<List<StockItem>> fetchProducts() async {
-    return await loadInventory();
+    try {
+      if (!_apiService.isAuthenticated()) {
+        print('⚠️ Not authenticated - using local cache');
+        return await loadInventory();
+      }
+
+      final response = await _apiService.get(
+        '/api/inventory/',
+        fromJson: (data) => (data as List)
+            .map(
+              (item) => _mapInventoryToStockItem(item as Map<String, dynamic>),
+            )
+            .toList(),
+      );
+
+      await saveInventory(response);
+      print('✅ Fetched ${response.length} inventory items from backend');
+      return response;
+    } catch (e) {
+      print('⚠️ Failed to fetch from API: $e - Using local cache');
+      return await loadInventory();
+    }
   }
 
-  /// Update product quantity in local cache
+  /// Update product quantity on backend
   static Future<bool> updateProductQuantity(
     String productId,
     String inventoryId,
     int newQuantity,
   ) async {
     try {
-      // Load current inventory
-      final items = await loadInventory();
+      if (!_apiService.isAuthenticated()) {
+        print('❌ Not authenticated - cannot update inventory on backend');
+        return false;
+      }
 
-      // Find and update the product
+      print('📤 Updating inventory on backend: $inventoryId');
+
+      await _apiService.patch(
+        '/api/inventory/$inventoryId/',
+        data: {'quantity': newQuantity},
+        fromJson: (data) => data,
+      );
+
+      print('✅ Inventory updated on backend');
+      await fetchProducts();
+      return true;
+    } catch (e) {
+      print('❌ Error updating inventory: $e');
+      return await _updateInventoryLocal(productId, newQuantity);
+    }
+  }
+
+  static Future<bool> _updateInventoryLocal(
+    String productId,
+    int newQuantity,
+  ) async {
+    try {
+      final items = await loadInventory();
       final index = items.indexWhere((item) => item.id == productId);
       if (index == -1) {
         print('✗ Product not found: $productId');
         return false;
       }
 
-      // Update quantity
       final updatedItem = StockItem(
         id: items[index].id,
         inventoryId: items[index].inventoryId,
@@ -49,12 +153,7 @@ class InventoryService {
         semanticLabel: items[index].semanticLabel,
       );
       items[index] = updatedItem;
-
-      // Save updated inventory
       await saveInventory(items);
-      print(
-        '✓ Successfully updated product $productId with quantity $newQuantity',
-      );
       return true;
     } catch (e) {
       print('✗ Error updating product: $e');
@@ -62,13 +161,107 @@ class InventoryService {
     }
   }
 
-  /// Create new product in local cache
   static Future<StockItem?> createProduct(
     Map<String, dynamic> productData,
   ) async {
     try {
-      // Generate a unique ID based on timestamp
+      if (!_apiService.isAuthenticated()) {
+        print('❌ Not authenticated - cannot create product on backend');
+        return null;
+      }
+
+      final imageUrl = productData['image']?.toString() ?? '';
+
+      final productPayload = <String, dynamic>{
+        'productName': productData['name'] ?? productData['productName'] ?? '',
+        'description': productData['description'] ?? '',
+        'skuCode': productData['sku'] ?? productData['skuCode'] ?? '',
+        'unit': productData['unit'] ?? 'pcs',
+        'costPrice': _parseDouble(
+          productData['unitCost'] ?? productData['costPrice'] ?? 0,
+        ),
+        'salePrice': _parseDouble(
+          productData['unitPrice'] ?? productData['salePrice'] ?? 0,
+        ),
+        'subcategory': productData['subcategoryId'],
+        'source': productData['sourceId'],
+      };
+      if (imageUrl.isNotEmpty) {
+        productPayload['image'] = imageUrl;
+      }
+
+      final productId = await _apiService.post(
+        '/api/products/',
+        data: productPayload,
+        fromJson: (data) => (data as Map<String, dynamic>)['productId'] as int?,
+      );
+
+      if (productId == null) {
+        print('❌ Failed to create product - no ID returned');
+        return null;
+      }
+
+      final inventoryPayload = {
+        'product': productId,
+        'quantity': productData['quantity'] ?? 0,
+        'reorderLevel': productData['reorderLevel'] ?? 10,
+        'location': productData['location'] ?? 'Main Warehouse',
+      };
+
+      final response = await _apiService.post(
+        '/api/inventory/',
+        data: inventoryPayload,
+        fromJson: (data) {
+          final item = _mapInventoryToStockItem(data as Map<String, dynamic>);
+          if (item.imageUrl.isEmpty && imageUrl.isNotEmpty) {
+            return StockItem(
+              id: productId.toString(),
+              inventoryId: item.inventoryId,
+              name: item.name,
+              sku: item.sku,
+              category: item.category,
+              quantity: item.quantity,
+              reorderLevel: item.reorderLevel,
+              unitCost: item.unitCost,
+              unitPrice: item.unitPrice,
+              supplierName: item.supplierName,
+              imageUrl: ConfigService().resolveMediaUrl(imageUrl),
+              semanticLabel: item.semanticLabel,
+            );
+          }
+          return StockItem(
+            id: productId.toString(),
+            inventoryId: item.inventoryId,
+            name: item.name,
+            sku: item.sku,
+            category: item.category,
+            quantity: item.quantity,
+            reorderLevel: item.reorderLevel,
+            unitCost: item.unitCost,
+            unitPrice: item.unitPrice,
+            supplierName: item.supplierName,
+            imageUrl: item.imageUrl,
+            semanticLabel: item.semanticLabel,
+          );
+        },
+      );
+
+      final items = await loadInventory();
+      items.add(response);
+      await saveInventory(items);
+      return response;
+    } catch (e) {
+      print('❌ Error creating product: $e');
+      return await _createProductLocal(productData);
+    }
+  }
+
+  static Future<StockItem?> _createProductLocal(
+    Map<String, dynamic> productData,
+  ) async {
+    try {
       final id = DateTime.now().millisecondsSinceEpoch.toString();
+      final image = productData['image']?.toString() ?? '';
 
       final newItem = StockItem(
         id: id,
@@ -85,50 +278,101 @@ class InventoryService {
           productData['unitPrice'] ?? productData['salePrice'] ?? 0,
         ),
         supplierName: productData['supplierName'] ?? '',
-        imageUrl: productData['image'] ?? '',
+        imageUrl: ConfigService().resolveMediaUrl(image),
         semanticLabel: productData['name'] ?? 'Product',
       );
 
-      // Load existing items and add new one
       final items = await loadInventory();
       items.add(newItem);
-
-      // Save to local storage
       await saveInventory(items);
-      print('✓ Product created locally: ${newItem.name}');
-
       return newItem;
     } catch (e) {
-      print('✗ Error creating product: $e');
+      print('✗ Error creating product locally: $e');
       return null;
     }
   }
 
-  /// Update product details in local cache
+  /// Update product on backend (including image URL) and sync local cache.
   static Future<bool> updateProduct(
     String productId,
     Map<String, dynamic> productData,
   ) async {
+    var apiSucceeded = false;
     try {
-      // Load current inventory
-      final items = await loadInventory();
+      if (_apiService.isAuthenticated() && productId.isNotEmpty) {
+        final payload = <String, dynamic>{};
 
-      // Find product index
+        if (productData['name'] != null) {
+          payload['productName'] = productData['name'];
+        }
+        if (productData['sku'] != null) {
+          payload['skuCode'] = productData['sku'];
+        }
+        if (productData['unitCost'] != null) {
+          payload['costPrice'] = productData['unitCost'];
+        }
+        if (productData['unitPrice'] != null) {
+          payload['salePrice'] = productData['unitPrice'];
+        }
+        if (productData['subcategoryId'] != null) {
+          payload['subcategory'] = productData['subcategoryId'];
+        }
+        if (productData['sourceId'] != null) {
+          payload['source'] = productData['sourceId'];
+        }
+        if (productData['image'] != null &&
+            productData['image'].toString().isNotEmpty) {
+          payload['image'] = productData['image'];
+        }
+
+        if (payload.isNotEmpty) {
+          print('📤 Updating product #$productId on backend: $payload');
+          await _apiService.patch(
+            '/api/products/$productId/',
+            data: payload,
+            fromJson: (data) => data,
+          );
+          print('✅ Product #$productId updated on backend');
+        }
+
+        // Re-fetch to sync cache with backend
+        await fetchProducts();
+        apiSucceeded = true;
+        return true;
+      }
+    } catch (e) {
+      print('❌ API update failed for product #$productId: $e');
+      print('❌ Will fall back to local cache update only');
+    }
+
+    // Local fallback (keeps changes visible even if backend is down)
+    final localResult = await _updateProductLocal(productId, productData);
+    if (localResult) {
+      print(
+        '💾 Product #$productId updated in local cache only (API: ${apiSucceeded ? "OK" : "FAILED"})',
+      );
+    }
+    return localResult;
+  }
+
+  static Future<bool> _updateProductLocal(
+    String productId,
+    Map<String, dynamic> productData,
+  ) async {
+    try {
+      final items = await loadInventory();
       final index = items.indexWhere((item) => item.id == productId);
       if (index == -1) {
         print('✗ Product not found: $productId');
         return false;
       }
 
-      // Update product with new data
-      final updatedItem = StockItem(
+      final image = productData['image']?.toString();
+      items[index] = StockItem(
         id: items[index].id,
         inventoryId: items[index].inventoryId,
-        name:
-            productData['name'] ??
-            productData['productName'] ??
-            items[index].name,
-        sku: productData['sku'] ?? productData['skuCode'] ?? items[index].sku,
+        name: productData['name'] ?? items[index].name,
+        sku: productData['sku'] ?? items[index].sku,
         category: productData['category'] ?? items[index].category,
         quantity: items[index].quantity,
         reorderLevel: productData['reorderLevel'] ?? items[index].reorderLevel,
@@ -139,47 +383,50 @@ class InventoryService {
           productData['unitPrice'] ?? items[index].unitPrice,
         ),
         supplierName: productData['supplierName'] ?? items[index].supplierName,
-        imageUrl: productData['image'] ?? items[index].imageUrl,
+        imageUrl: image != null && image.isNotEmpty
+            ? ConfigService().resolveMediaUrl(image)
+            : items[index].imageUrl,
         semanticLabel: items[index].semanticLabel,
       );
-      items[index] = updatedItem;
 
-      // Save to local storage
       await saveInventory(items);
-      print('✓ Successfully updated product $productId');
       return true;
     } catch (e) {
-      print('✗ Error updating product: $e');
+      print('✗ Error updating product locally: $e');
       return false;
     }
   }
 
-  /// Delete product from local cache
-  static Future<bool> deleteProduct(String productId) async {
+  static Future<bool> deleteProduct(String inventoryId) async {
     try {
-      // Load current inventory
-      final items = await loadInventory();
-
-      // Find and remove product
-      final index = items.indexWhere((item) => item.id == productId);
-      if (index == -1) {
-        print('✗ Product not found: $productId');
+      if (!_apiService.isAuthenticated()) {
+        print('❌ Not authenticated - cannot delete product on backend');
         return false;
       }
 
-      items.removeAt(index);
+      await _apiService.delete('/api/inventory/$inventoryId/');
 
-      // Save updated inventory
+      final items = await loadInventory();
+      items.removeWhere((item) => item.inventoryId == inventoryId);
       await saveInventory(items);
-      print('✓ Successfully deleted product $productId');
       return true;
     } catch (e) {
-      print('✗ Error deleting product: $e');
+      print('❌ Error deleting product: $e');
+      return await _deleteProductLocalByInventoryId(inventoryId);
+    }
+  }
+
+  static Future<bool> _deleteProductLocalByInventoryId(String inventoryId) async {
+    try {
+      final items = await loadInventory();
+      items.removeWhere((item) => item.inventoryId == inventoryId);
+      await saveInventory(items);
+      return true;
+    } catch (e) {
       return false;
     }
   }
 
-  /// Save inventory to local cache
   static Future<void> saveInventory(List<StockItem> items) async {
     try {
       final jsonData = items.map((item) => item.toMap()).toList();
@@ -189,7 +436,6 @@ class InventoryService {
     }
   }
 
-  /// Load inventory from local cache
   static Future<List<StockItem>> loadInventory() async {
     try {
       final jsonString = _prefs.getString(_inventoryKey);
@@ -206,7 +452,6 @@ class InventoryService {
     }
   }
 
-  /// Safely parse a value to double, handling strings, numbers, and null
   static double _parseDouble(dynamic value) {
     if (value == null) return 0.0;
     if (value is double) return value;
@@ -215,7 +460,6 @@ class InventoryService {
       try {
         return double.parse(value);
       } catch (e) {
-        print('Error parsing double from string "$value": $e');
         return 0.0;
       }
     }

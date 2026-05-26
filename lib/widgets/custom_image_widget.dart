@@ -1,6 +1,9 @@
 import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../core/app_export.dart';
+import '../services/config_service.dart';
 
 extension ImageTypeExtension on String {
   ImageType get imageType {
@@ -8,7 +11,7 @@ extension ImageTypeExtension on String {
       return ImageType.network;
     } else if (endsWith('.svg')) {
       return ImageType.svg;
-    } else if (startsWith('file: //')) {
+    } else if (startsWith('file://')) {
       return ImageType.file;
     } else {
       return ImageType.png;
@@ -105,15 +108,21 @@ class CustomImageWidget extends StatelessWidget {
     }
   }
 
+  String? get _resolvedImageUrl {
+    if (imageUrl == null || imageUrl!.isEmpty) return null;
+    return ConfigService().resolveMediaUrl(imageUrl);
+  }
+
   Widget _buildImageView() {
-    if (imageUrl != null && imageUrl!.isNotEmpty) {
-      switch (imageUrl!.imageType) {
+    final resolved = _resolvedImageUrl;
+    if (resolved != null && resolved.isNotEmpty) {
+      switch (resolved.imageType) {
         case ImageType.svg:
           return SizedBox(
             height: height,
             width: width,
             child: SvgPicture.asset(
-              imageUrl!,
+              resolved,
               height: height,
               width: width,
               fit: fit ?? BoxFit.contain,
@@ -127,20 +136,39 @@ class CustomImageWidget extends StatelessWidget {
             ),
           );
         case ImageType.file:
+          if (kIsWeb) {
+            return errorWidget ??
+                Image.asset(
+                  placeHolder,
+                  height: height,
+                  width: width,
+                  fit: fit ?? BoxFit.cover,
+                  semanticLabel: semanticLabel,
+                );
+          }
           return Image.file(
-            File(imageUrl!),
+            File(resolved),
             height: height,
             width: width,
             fit: fit ?? BoxFit.cover,
             color: color,
             semanticLabel: semanticLabel,
+            errorBuilder: (context, error, stackTrace) =>
+                errorWidget ??
+                Image.asset(
+                  placeHolder,
+                  height: height,
+                  width: width,
+                  fit: fit ?? BoxFit.cover,
+                  semanticLabel: semanticLabel,
+                ),
           );
         case ImageType.network:
           return CachedNetworkImage(
             height: height,
             width: width,
             fit: fit,
-            imageUrl: imageUrl!,
+            imageUrl: resolved,
             color: color,
             placeholder: (context, url) => SizedBox(
               height: 30,
@@ -163,7 +191,7 @@ class CustomImageWidget extends StatelessWidget {
         case ImageType.png:
         default:
           return Image.asset(
-            imageUrl!,
+            resolved,
             height: height,
             width: width,
             fit: fit ?? BoxFit.cover,

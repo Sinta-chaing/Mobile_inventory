@@ -30,10 +30,8 @@ void main() {
     });
 
     test('Permission denied callback can be set', () {
-      bool callbackCalled = false;
-
       apiService.setOnPermissionDenied((message) {
-        callbackCalled = true;
+        // Callback registered
       });
 
       // Just verify callback was registered without error

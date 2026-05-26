@@ -61,10 +61,10 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
     'This Quarter',
   ];
 
-  // Data from other screens
-  late List<backend.Invoice> _orders;
-  late List<BiCustomer> _customers;
-  late List<backend.Source> _suppliers;
+  // Data from other screens - converted to UI models
+  late List<Order> _orders;
+  late List<Customer> _customers;
+  late List<Supplier> _suppliers;
   late List<StockItem> _stockItems;
 
   // Refresh state
@@ -81,20 +81,54 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
 
   Future<void> _loadData() async {
     try {
-      final orders = await OrderService.loadOrders();
-      final inventory = await InventoryService.loadInventory();
-      final customersData = await CustomerDataService.loadCustomers();
-      final suppliers = await SupplierDataService.fetchSuppliers();
+      final backendOrders = await OrderService.fetchOrders();
+      final inventory = await InventoryService.fetchProducts();
+      // Log costs for debugging
+      for (final s in inventory) {
+        print(
+          '📊 BI stock: ${s.name} → cost=\$${s.unitCost.toStringAsFixed(2)} price=\$${s.unitPrice.toStringAsFixed(2)}',
+        );
+      }
+      final backendCustomers = await CustomerDataService.loadCustomers();
+      final backendSuppliers = await SupplierDataService.fetchSuppliers();
 
       if (mounted) {
         setState(() {
-          _orders = orders;
+          // Convert backend models to UI models
+          _orders = backendOrders.map((inv) => Order.fromBackend(inv)).toList();
           _stockItems = inventory;
-          // Convert backend Customer to BiCustomer for BI dashboard
-          _customers = customersData
-              .map((c) => BiCustomer.fromBackend(c))
+          _customers = backendCustomers
+              .map((c) => Customer.fromBackend(c))
               .toList();
-          _suppliers = suppliers;
+
+          // Compute supplier metrics from order data
+          final supplierOrderTotals = <String, double>{};
+          final supplierOrderCounts = <String, int>{};
+          for (final order in _orders) {
+            for (final item in order.items) {
+              final supplierName = _stockItems
+                  .where((s) =>
+                      s.name.toLowerCase() == item.itemName.toLowerCase())
+                  .map((s) => s.supplierName)
+                  .firstOrNull;
+              if (supplierName != null && supplierName.isNotEmpty) {
+                supplierOrderTotals.update(
+                    supplierName, (v) => v + item.lineTotal,
+                    ifAbsent: () => item.lineTotal);
+                supplierOrderCounts.update(supplierName, (v) => v + 1,
+                    ifAbsent: () => 1);
+              }
+            }
+          }
+          _suppliers = backendSuppliers
+              .map((src) => Supplier.fromBackend(src))
+              .map((s) {
+            s.totalOrders =
+                supplierOrderTotals[s.name] ?? s.totalOrders;
+            s.orderCount =
+                supplierOrderCounts[s.name] ?? s.orderCount;
+            return s;
+          }).toList();
           _isLoading = false;
         });
       }
@@ -163,25 +197,28 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
       ),
       bottomNavigationBar: isTablet
           ? null
-          : ClipRect(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(220),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border(
-                        top: BorderSide(
-                          color: AppTheme.outlineVariant.withAlpha(100),
-                          width: 1,
+          : SizedBox(
+              height: 76,
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(220),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border(
+                          top: BorderSide(
+                            color: AppTheme.outlineVariant.withAlpha(100),
+                            width: 1,
+                          ),
                         ),
                       ),
-                    ),
-                    child: AppNavigation(
-                      currentIndex: _selectedNavIndex,
-                      onDestinationSelected: _onNavTap,
+                      child: AppNavigation(
+                        currentIndex: _selectedNavIndex,
+                        onDestinationSelected: _onNavTap,
+                      ),
                     ),
                   ),
                 ),

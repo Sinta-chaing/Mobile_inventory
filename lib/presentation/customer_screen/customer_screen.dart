@@ -508,7 +508,7 @@ class _CustomerScreenState extends State<CustomerScreen> {
                           const SizedBox(width: 3),
                           Expanded(
                             child: Text(
-                              customer.email,
+                              customer.email ?? 'N/A',
                               style: GoogleFonts.dmSans(
                                 fontSize: 11,
                                 color: AppTheme.outline,
@@ -657,29 +657,47 @@ class _CustomerScreenState extends State<CustomerScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              if (nameCtrl.text.isNotEmpty) {
-                setState(() {
-                  _customers.insert(
-                    0,
-                    Customer(
-                      customerId: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                      name: nameCtrl.text,
-                      email: emailCtrl.text,
-                      phone: phoneCtrl.text,
-                      businessAddress: companyCtrl.text.isNotEmpty
-                          ? companyCtrl.text
-                          : addressCtrl.text,
-                      customerType: 'regular',
-                      company: companyCtrl.text,
-                      address: addressCtrl.text,
-                      totalPurchases: 0,
-                      orderCount: 0,
-                      joinDate: DateTime.now(),
+            onPressed: () async {
+              if (nameCtrl.text.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Customer name is required')),
+                );
+                return;
+              }
+
+              // Call backend API to create customer
+              final result = await CustomerDataService.createCustomer({
+                'name': nameCtrl.text,
+                'email': emailCtrl.text,
+                'phone': phoneCtrl.text,
+                'businessAddress': companyCtrl.text.isNotEmpty
+                    ? companyCtrl.text
+                    : addressCtrl.text,
+                'customerType': 'Individual',
+              });
+
+              if (result != null) {
+                // Success! Add to UI
+                if (mounted) {
+                  setState(() {
+                    _customers.insert(0, Customer.fromBackend(result));
+                  });
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Customer "${result.name}" created successfully',
+                      ),
                     ),
                   );
-                });
-                Navigator.pop(ctx);
+                }
+              } else {
+                // Error creating customer
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Failed to create customer')),
+                  );
+                }
               }
             },
             child: const Text('Add'),

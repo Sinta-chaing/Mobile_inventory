@@ -1,5 +1,13 @@
 /// Complete Flutter models matching Django backend structure
 /// All field names and types match the backend exactly for seamless API integration
+library models;
+
+double _asDouble(dynamic value, {double fallback = 0.0}) {
+  if (value == null) return fallback;
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value) ?? fallback;
+  return fallback;
+}
 
 // ============== ENUMS ==============
 // Note: UserRole is defined in user_role_constants.dart
@@ -229,9 +237,9 @@ class Product {
       image: json['image'],
       skuCode: json['skuCode'] ?? '',
       unit: json['unit'] ?? '',
-      costPrice: (json['costPrice'] ?? 0).toDouble(),
-      salePrice: (json['salePrice'] ?? 0).toDouble(),
-      discount: (json['discount'] ?? 0).toDouble(),
+      costPrice: _asDouble(json['costPrice']),
+      salePrice: _asDouble(json['salePrice']),
+      discount: _asDouble(json['discount']),
       subcategoryId: json['subcategory'] ?? 0,
       sourceId: json['source'],
       status: json['status'] ?? 'Active',
@@ -328,7 +336,7 @@ class NewStock {
       newstockId: json['newstockId'] ?? 0,
       inventoryId: json['inventory'] ?? 0,
       quantity: json['quantity'] ?? 0,
-      purchasePrice: (json['purchasePrice'] ?? 0).toDouble(),
+      purchasePrice: _asDouble(json['purchasePrice']),
       receivedDate: DateTime.parse(
         json['receivedDate'] ?? DateTime.now().toString(),
       ),
@@ -470,10 +478,10 @@ class Invoice {
       customerName: json['customerName'] ?? '',
       customerPhone: json['customerPhone'],
       createdByUserId: json['createdByUser'],
-      totalBeforeDiscount: (json['totalBeforeDiscount'] ?? 0).toDouble(),
-      discount: (json['discount'] ?? 0).toDouble(),
-      tax: (json['tax'] ?? 0).toDouble(),
-      grandTotal: (json['grandTotal'] ?? 0).toDouble(),
+      totalBeforeDiscount: _asDouble(json['totalBeforeDiscount']),
+      discount: _asDouble(json['discount']),
+      tax: _asDouble(json['tax']),
+      grandTotal: _asDouble(json['grandTotal']),
       paymentMethod: json['paymentMethod'] ?? 'Cash',
       note: json['note'],
       status: json['status'] ?? 'Pending',
@@ -530,6 +538,7 @@ class Purchase {
   final int purchaseId;
   final int invoiceId; // FK to Invoice
   final int? productId; // FK to Product (nullable)
+  final String? productName; // Product name from backend
   final int quantity;
   final double pricePerUnit;
   final double discount;
@@ -540,6 +549,7 @@ class Purchase {
     required this.purchaseId,
     required this.invoiceId,
     this.productId,
+    this.productName,
     required this.quantity,
     required this.pricePerUnit,
     required this.discount,
@@ -552,10 +562,11 @@ class Purchase {
       purchaseId: json['purchaseId'] ?? 0,
       invoiceId: json['invoice'] ?? 0,
       productId: json['product'],
+      productName: json['productName'],
       quantity: json['quantity'] ?? 0,
-      pricePerUnit: (json['pricePerUnit'] ?? 0).toDouble(),
-      discount: (json['discount'] ?? 0).toDouble(),
-      subtotal: (json['subtotal'] ?? 0).toDouble(),
+      pricePerUnit: _asDouble(json['pricePerUnit']),
+      discount: _asDouble(json['discount']),
+      subtotal: _asDouble(json['subtotal']),
       createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toString()),
     );
   }
@@ -565,6 +576,7 @@ class Purchase {
       'purchaseId': purchaseId,
       'invoice': invoiceId,
       'product': productId,
+      'productName': productName,
       'quantity': quantity,
       'pricePerUnit': pricePerUnit,
       'discount': discount,
@@ -604,7 +616,7 @@ class ProductAssociation {
       product1Id: json['product1'] ?? 0,
       product2Id: json['product2'] ?? 0,
       frequency: json['frequency'] ?? 0,
-      associationPercentage: (json['associationPercentage'] ?? 0).toDouble(),
+      associationPercentage: _asDouble(json['associationPercentage']),
       totalProduct1Purchases: json['totalProduct1Purchases'] ?? 0,
       createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toString()),
       updatedAt: DateTime.parse(json['updatedAt'] ?? DateTime.now().toString()),
@@ -657,7 +669,7 @@ class Transaction {
       transactionId: json['transactionId'] ?? 0,
       invoiceId: json['invoice'] ?? 0,
       customerId: json['customer'],
-      amountPaid: (json['amountPaid'] ?? 0).toDouble(),
+      amountPaid: _asDouble(json['amountPaid']),
       paymentMethod: json['paymentMethod'] ?? 'Cash',
       transactionStatus: json['transactionStatus'] ?? 'Pending',
       paymentReference: json['paymentReference'],

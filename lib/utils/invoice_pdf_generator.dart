@@ -3,34 +3,16 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:khqr_sdk/khqr_sdk.dart';
 import '../presentation/purchase_screen/purchase_screen.dart';
-
-class KhqrConfig {
-  static const String bakongAccountId = 'oun_mengheang@aclb';
-  static const String acquiringBank = 'ACLEDA Bank';
-  static const String merchantId = 'TEMP001';
-  static const String merchantName = 'Oun MengHeang';
-  static const String currency = 'KHR';
-  static const String merchantCity = 'Phnom Penh';
-  static const String storeLabel = 'InvenTrack Store';
-  static const String phoneNumber = '';
-  static const String terminalLabel = 'InvenTrack';
-}
+import '../services/order_service.dart';
+import 'khqr_code_helper.dart';
 
 class InvoicePdfGenerator {
   static Future<void> generateAndPreviewPdf(
     BuildContext context,
     Order order,
   ) async {
-    // Generate KHQR code if payment method is KHQR
-    String? khqrCode;
-    if (order.paymentMethod == PaymentMethod.khqr && order.khqrCode == null) {
-      khqrCode = _generateKhqrCode(order.total);
-      order.khqrCode = khqrCode;
-    } else {
-      khqrCode = order.khqrCode;
-    }
+    final khqrCode = await _resolveKhqrCode(order);
 
     final pdf = pw.Document();
 
@@ -308,10 +290,10 @@ class InvoicePdfGenerator {
               ),
               pw.SizedBox(height: 30),
 
-              // KHQR QR Code Section (if payment method is KHQR and order is pending)
+              // KHQR QR Code Section for pending KHQR invoices
               if (order.paymentMethod == PaymentMethod.khqr &&
                   order.status == OrderStatus.pending &&
-                  khqrCode != null)
+                  KhqrCodeHelper.isValidCode(khqrCode))
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
@@ -423,7 +405,7 @@ class InvoicePdfGenerator {
                             ),
                             child: pw.BarcodeWidget(
                               barcode: pw.Barcode.qrCode(),
-                              data: khqrCode,
+                              data: khqrCode!,
                               width: 110,
                               height: 110,
                             ),
@@ -495,29 +477,26 @@ class InvoicePdfGenerator {
     return items.fold<double>(0, (sum, item) => sum + item.discountAmount);
   }
 
-  /// Generate KHQR code using KHQR SDK
-  static String _generateKhqrCode(double amountInUsd) {
-    try {
-      // Expire in 10 hours from now
-      final expire = DateTime.now().millisecondsSinceEpoch + (10 * 3600000);
-
-      // Create merchant info
-      final info = MerchantInfo(
-        bakongAccountId: KhqrConfig.bakongAccountId,
-        acquiringBank: KhqrConfig.acquiringBank,
-        merchantId: KhqrConfig.merchantId,
-        merchantName: KhqrConfig.merchantName,
-        currency: KhqrCurrency.usd,
-        amount: amountInUsd,
-        expirationTimestamp: expire,
-      );
-
-      // Generate KHQR using SDK
-      final res = KhqrSdk.generateMerchant(info);
-      return res.data?.qr ?? '';
-    } catch (e) {
-      print('Error generating KHQR: $e');
-      return '';
+  static Future<String?> _resolveKhqrCode(Order order) async {
+    if (order.paymentMethod != PaymentMethod.khqr ||
+        order.status != OrderStatus.pending) {
+      return null;
     }
+
+    if (KhqrCodeHelper.isValidCode(order.khqrCode)) {
+      return order.khqrCode;
+    }
+
+    final fromBackend = await OrderService.fetchKhqrCode(order.invoiceId);
+    if (KhqrCodeHelper.isValidCode(fromBackend)) {
+      order.khqrCode = fromBackend;
+      return fromBackend;
+    }
+
+    final local = KhqrCodeHelper.generateKhqrCode(order.total);
+    if (KhqrCodeHelper.isValidCode(local)) {
+      order.khqrCode = local;
+    }
+    return local;
   }
 }

@@ -2,15 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+import 'dart:typed_data';
 import '../../../theme/app_theme.dart';
+import '../../../services/config_service.dart';
+import '../../../widgets/picked_image_preview.dart';
 import '../../../services/supplier_data_service.dart';
 import '../../../services/api_service.dart';
-import '../../../services/user_service.dart';
 import '../../../services/inventory_service.dart';
+import '../../../services/category_data_service.dart';
 import '../../../utils/rbac_helper.dart';
+import '../../../models/all_models.dart' as backend;
 import '../inventory_screen.dart';
-import '../../supplier_screen/supplier_screen.dart';
 
 class InventoryItemFormWidget extends StatefulWidget {
   final StockItem? existingItem;
@@ -40,41 +42,11 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
   late TextEditingController _priceController;
   late TextEditingController _supplierController;
 
-  String _selectedCategory = 'Power Tools';
-  final List<String> _categories = [
-    'Power Tools',
-    'Hand Tools',
-    'Safety Equipment',
-    'Measuring Tools',
-    'Cleaning',
-    'Electrical',
-    'Plumbing',
-    'Other',
-  ];
-
-  // Map subcategories to main categories
-  final Map<String, String> _subcategoryToCategory = {
-    'Drills': 'Power Tools',
-    'Saws': 'Power Tools',
-    'Sanders': 'Power Tools',
-    'Hammers': 'Hand Tools',
-    'Wrenches': 'Hand Tools',
-    'Screwdrivers': 'Hand Tools',
-    'Gloves': 'Safety Equipment',
-    'Eye Protection': 'Safety Equipment',
-    'Respirators': 'Safety Equipment',
-    'Tape Measures': 'Measuring Tools',
-    'Levels': 'Measuring Tools',
-    'Squares': 'Measuring Tools',
-    'Cables': 'Electrical',
-    'Connectors': 'Electrical',
-    'Batteries': 'Electrical',
-  };
-
-  /// Map subcategory name to main category
-  String _mapSubcategoryToCategory(String subcategoryName) {
-    return _subcategoryToCategory[subcategoryName] ?? 'Other';
-  }
+  List<backend.Category> _categories = [];
+  List<backend.SubCategory> _subcategories = [];
+  int? _selectedCategoryId;
+  int? _selectedSubcategoryId;
+  bool _loadingCategories = true;
 
   // Supplier data - initialize with empty list, will be populated in initState
   List<backend.Source> _suppliers = [];
@@ -82,12 +54,17 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
   int? _selectedSupplierId;
   bool _showSupplierDropdown = false;
   bool _supplierMissing = false;
-  // Subcategory data
-  List<Map<String, dynamic>> _subcategories = [];
-  int? _selectedSubcategoryId;
 
-  // Image picker data
-  File? _selectedImageFile;
+  List<backend.SubCategory> get _filteredSubcategories {
+    if (_selectedCategoryId == null) return [];
+    return _subcategories
+        .where((sc) => sc.categoryId == _selectedCategoryId)
+        .toList();
+  }
+
+  // Image picker data (XFile + bytes — works on web and mobile)
+  XFile? _selectedImage;
+  Uint8List? _selectedImageBytes;
   final ImagePicker _imagePicker = ImagePicker();
 
   @override
@@ -99,7 +76,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
     _canEdit = rbacHelper.canEditProducts();
 
     _loadSuppliers();
-    _loadSubcategories();
+    _loadCategoryData();
 
     final item = widget.existingItem;
     _nameController = TextEditingController(text: item?.name ?? '');
@@ -117,15 +94,6 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
       text: item?.unitPrice.toString() ?? '',
     );
     _supplierController = TextEditingController(text: item?.supplierName ?? '');
-
-    // NOTE: supplier list is loaded asynchronously in _loadSuppliers().
-    // Pre-selection is handled after suppliers are fetched to avoid
-    // searching an empty list here.
-
-    // Pre-select category if editing (map subcategory to main category)
-    if (item != null) {
-      _selectedCategory = _mapSubcategoryToCategory(item.category);
-    }
   }
 
   Future<void> _loadSuppliers() async {
@@ -162,37 +130,189 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
     }
   }
 
-  Future<void> _loadSubcategories() async {
+  Future<void> _loadCategoryData() async {
+    setState(() => _loadingCategories = true);
     try {
-      final api = ApiService();
-      final data = await api.get<List<dynamic>>(
-        '/api/subcategories/',
-        fromJson: (json) => (json as List).map((e) => e).toList(),
-      );
+      final results = await Future.wait([
+        CategoryDataService.fetchCategories(),
+        CategoryDataService.fetchSubcategories(),
+      ]);
+      final categories = results[0] as List<backend.Category>;
+      final subcategories = results[1] as List<backend.SubCategory>;
 
-      setState(() {
-        _subcategories = data.map((s) => s as Map<String, dynamic>).toList();
-      });
+      int? categoryId = _selectedCategoryId;
+      int? subcategoryId = _selectedSubcategoryId;
 
-      // If editing an item, try to pre-select its subcategory
       final item = widget.existingItem;
-      if (item != null && _selectedSubcategoryId == null) {
-        // Try to find subcategory by name
-        final match = _subcategories.firstWhere(
-          (sc) =>
-              (sc['name'] as String).toLowerCase() ==
-              item.category.toLowerCase(),
-          orElse: () => {},
+      if (item != null && subcategoryId == null) {
+        final match = subcategories.where(
+          (sc) => sc.name.toLowerCase() == item.category.toLowerCase(),
         );
         if (match.isNotEmpty) {
-          setState(() {
-            _selectedSubcategoryId = match['subcategoryId'] as int?;
-          });
+          final sc = match.first;
+          subcategoryId = sc.subcategoryId;
+          categoryId = sc.categoryId;
         }
       }
+
+      if (categoryId == null && categories.isNotEmpty) {
+        categoryId = categories.first.categoryId;
+      }
+
+      if (subcategoryId != null &&
+          !subcategories.any((sc) => sc.subcategoryId == subcategoryId)) {
+        subcategoryId = null;
+      }
+
+      if (subcategoryId == null && categoryId != null) {
+        final forCategory = subcategories
+            .where((sc) => sc.categoryId == categoryId)
+            .toList();
+        if (forCategory.isNotEmpty) {
+          subcategoryId = forCategory.first.subcategoryId;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _categories = categories;
+        _subcategories = subcategories;
+        _selectedCategoryId = categoryId;
+        _selectedSubcategoryId = subcategoryId;
+        _loadingCategories = false;
+      });
     } catch (e) {
-      print('Error loading subcategories: $e');
+      print('Error loading categories: $e');
+      if (mounted) {
+        setState(() => _loadingCategories = false);
+      }
     }
+  }
+
+  String? _selectedSubcategoryName() {
+    if (_selectedSubcategoryId == null) return null;
+    for (final sc in _subcategories) {
+      if (sc.subcategoryId == _selectedSubcategoryId) return sc.name;
+    }
+    return null;
+  }
+
+  Future<void> _showAddCategoryDialog() async {
+    final controller = TextEditingController();
+    final created = await showDialog<backend.Category>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Category'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Category name',
+            hintText: 'e.g. Power Tools',
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              try {
+                final category = await CategoryDataService.createCategory(name);
+                if (ctx.mounted) Navigator.pop(ctx, category);
+              } catch (e) {
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to add category: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (!mounted || created == null) return;
+    setState(() {
+      _categories = [..._categories, created];
+      _selectedCategoryId = created.categoryId;
+      _selectedSubcategoryId = null;
+    });
+  }
+
+  Future<void> _showAddSubcategoryDialog() async {
+    if (_selectedCategoryId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select a category first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final controller = TextEditingController();
+    final created = await showDialog<backend.SubCategory>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Subcategory'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Subcategory name',
+            hintText: 'e.g. Drills',
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final name = controller.text.trim();
+              if (name.isEmpty) return;
+              try {
+                final subcategory = await CategoryDataService.createSubcategory(
+                  name: name,
+                  categoryId: _selectedCategoryId!,
+                );
+                if (ctx.mounted) Navigator.pop(ctx, subcategory);
+              } catch (e) {
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to add subcategory: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (!mounted || created == null) return;
+    setState(() {
+      _subcategories = [..._subcategories, created];
+      _selectedSubcategoryId = created.subcategoryId;
+    });
   }
 
   @override
@@ -240,8 +360,20 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
       );
 
       if (pickedFile != null) {
+        final bytes = await readImageBytes(pickedFile);
+        if (!mounted) return;
+        if (bytes == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not read the selected image'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
         setState(() {
-          _selectedImageFile = File(pickedFile.path);
+          _selectedImage = pickedFile;
+          _selectedImageBytes = bytes;
         });
       }
     } catch (e) {
@@ -258,7 +390,8 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
 
   void _clearImage() {
     setState(() {
-      _selectedImageFile = null;
+      _selectedImage = null;
+      _selectedImageBytes = null;
     });
   }
 
@@ -285,34 +418,29 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
     try {
       final isEdit = widget.existingItem != null;
 
-      // Ensure we have a subcategoryId - required for backend
-      if (_selectedSubcategoryId == null && _subcategories.isNotEmpty) {
-        // Try to find subcategory matching the selected category
-        final match = _subcategories.firstWhere(
-          (sc) =>
-              (sc['name'] as String).toLowerCase() ==
-              _selectedCategory.toLowerCase(),
-          orElse: () => {},
+      if (_selectedSubcategoryId == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please select or add a subcategory'),
+            backgroundColor: Colors.red,
+          ),
         );
-        if (match.isNotEmpty) {
-          _selectedSubcategoryId = match['subcategoryId'] as int?;
-        } else if (_subcategories.isNotEmpty) {
-          // Fallback to first subcategory if no match
-          _selectedSubcategoryId =
-              _subcategories.first['subcategoryId'] as int?;
-        }
+        setState(() => _isSaving = false);
+        return;
       }
+
+      final subcategoryLabel = _selectedSubcategoryName() ?? 'Uncategorized';
 
       // Upload image if selected
       String imageUrl = widget.existingItem?.imageUrl ?? '';
-      if (_selectedImageFile != null) {
-        print('Uploading image: ${_selectedImageFile!.path}');
-        // Upload to API - use a multipart request for the image
+      if (_selectedImage != null) {
+        print('Uploading image: ${_selectedImage!.name}');
         try {
           final apiService = ApiService();
           final uploadedUrl = await apiService.uploadFile<Map<String, dynamic>>(
-            '/api/products/upload-image/',
-            _selectedImageFile!,
+            '/api/upload/',
+            _selectedImage!,
             fromJson: (json) => json as Map<String, dynamic>,
           );
 
@@ -337,7 +465,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         inventoryId: widget.existingItem?.inventoryId ?? '',
         name: _nameController.text.trim(),
         sku: _skuController.text.trim().toUpperCase(),
-        category: _selectedCategory,
+        category: subcategoryLabel,
         quantity: int.parse(_quantityController.text),
         reorderLevel: int.parse(_reorderController.text),
         unitCost: double.parse(_costController.text),
@@ -367,41 +495,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         );
         print('costController text: ${_costController.text}');
         print('priceController text: ${_priceController.text}');
-        print('_selectedSubcategoryId: $_selectedSubcategoryId');
-        print('_subcategories: $_subcategories');
-        print('updatePayload: $updatePayload');
-        print('================================');
-
-        // CRITICAL: Include subcategory ID if selected
-        if (_selectedSubcategoryId != null) {
-          updatePayload['subcategoryId'] = _selectedSubcategoryId;
-          print('Using selected subcategoryId: $_selectedSubcategoryId');
-        } else {
-          // If no subcategory selected, try to find one by name or use fallback
-          print(
-            'No subcategoryId selected! Looking for match by category name: $_selectedCategory',
-          );
-          final match = _subcategories.firstWhere(
-            (sc) =>
-                (sc['name'] as String).toLowerCase() ==
-                _selectedCategory.toLowerCase(),
-            orElse: () => {},
-          );
-          if (match.isNotEmpty) {
-            final scId = match['subcategoryId'] as int?;
-            if (scId != null) {
-              updatePayload['subcategoryId'] = scId;
-              print('Found matching subcategoryId: $scId');
-            }
-          } else if (_subcategories.isNotEmpty) {
-            // Fallback to first subcategory
-            final scId = _subcategories.first['subcategoryId'] as int?;
-            if (scId != null) {
-              updatePayload['subcategoryId'] = scId;
-              print('Using fallback subcategoryId: $scId');
-            }
-          }
-        }
+        updatePayload['subcategoryId'] = _selectedSubcategoryId;
 
         // Include supplier/source ID if selected
         if (_selectedSupplierId != null) {
@@ -462,33 +556,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
           'supplierName': item.supplierName,
         };
 
-        // CRITICAL: Include subcategory ID for new product
-        if (_selectedSubcategoryId != null) {
-          payload['subcategoryId'] = _selectedSubcategoryId;
-          print('Creating product with subcategoryId: $_selectedSubcategoryId');
-        } else if (_subcategories.isNotEmpty) {
-          // Try to find matching subcategory by name
-          final match = _subcategories.firstWhere(
-            (sc) =>
-                (sc['name'] as String).toLowerCase() ==
-                _selectedCategory.toLowerCase(),
-            orElse: () => {},
-          );
-          if (match.isNotEmpty) {
-            final scId = match['subcategoryId'] as int?;
-            if (scId != null) {
-              payload['subcategoryId'] = scId;
-              print('Creating product with matched subcategoryId: $scId');
-            }
-          } else {
-            // Fallback to first subcategory
-            final scId = _subcategories.first['subcategoryId'] as int?;
-            if (scId != null) {
-              payload['subcategoryId'] = scId;
-              print('Creating product with fallback subcategoryId: $scId');
-            }
-          }
-        }
+        payload['subcategoryId'] = _selectedSubcategoryId;
 
         if (imageUrl.isNotEmpty) {
           payload['image'] = imageUrl;
@@ -628,32 +696,10 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
                                 : null,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _selectedCategory,
-                            decoration: const InputDecoration(
-                              labelText: 'Category *',
-                            ),
-                            items: _categories
-                                .map(
-                                  (c) => DropdownMenuItem(
-                                    value: c,
-                                    child: Text(c),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (v) => setState(
-                              () => _selectedCategory = v ?? _selectedCategory,
-                            ),
-                            style: GoogleFonts.ibmPlexSans(
-                              fontSize: 14,
-                              color: const Color(0xFF1A1C1B),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    _buildCategoryField(),
                     const SizedBox(height: 20),
                     _buildSectionLabel('Stock Levels'),
                     const SizedBox(height: 10),
@@ -752,6 +798,14 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
                     _buildSectionLabel('Subcategory'),
                     const SizedBox(height: 10),
                     _buildSubcategoryField(),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Subcategories are grouped under the selected category.',
+                      style: GoogleFonts.ibmPlexSans(
+                        fontSize: 11,
+                        color: AppTheme.outline,
+                      ),
+                    ),
                     const SizedBox(height: 28),
 
                     // Permission warning (if no permission)
@@ -855,26 +909,22 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         Container(
           decoration: BoxDecoration(
             border: Border.all(
-              color: _selectedImageFile != null
+              color: _selectedImageBytes != null
                   ? AppTheme.primary
                   : AppTheme.outline,
-              width: _selectedImageFile != null ? 2 : 1,
+              width: _selectedImageBytes != null ? 2 : 1,
             ),
             borderRadius: BorderRadius.circular(8),
             color: AppTheme.background,
           ),
-          child: _selectedImageFile != null
+          child: _selectedImageBytes != null
               ? Stack(
                   alignment: Alignment.topRight,
                   children: [
-                    ClipRRect(
+                    PickedImagePreview(
+                      imageBytes: _selectedImageBytes!,
+                      height: 120,
                       borderRadius: BorderRadius.circular(7),
-                      child: Image.file(
-                        _selectedImageFile!,
-                        height: 120,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                      ),
                     ),
                     Padding(
                       padding: const EdgeInsets.all(8),
@@ -911,7 +961,9 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(7),
                       child: Image.network(
-                        widget.existingItem!.imageUrl,
+                        ConfigService().resolveMediaUrl(
+                          widget.existingItem!.imageUrl,
+                        ),
                         height: 120,
                         width: double.infinity,
                         fit: BoxFit.cover,
@@ -1073,34 +1125,17 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(
-                                    supplier.category,
-                                    style: GoogleFonts.ibmPlexSans(
-                                      fontSize: 12,
-                                      color: AppTheme.outline,
+                                  if (supplier.contactPerson != null)
+                                    Text(
+                                      supplier.contactPerson!,
+                                      style: GoogleFonts.ibmPlexSans(
+                                        fontSize: 12,
+                                        color: AppTheme.outline,
+                                      ),
                                     ),
-                                  ),
                                 ],
                               ),
                             ),
-                            if (supplier.rating > 0)
-                              Padding(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: Chip(
-                                  label: Text(
-                                    '${supplier.rating}★',
-                                    style: GoogleFonts.ibmPlexSans(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  backgroundColor: const Color(0xFFFFF3E0),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                ),
-                              ),
                           ],
                         ),
                       ),
@@ -1146,29 +1181,138 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
     );
   }
 
-  Widget _buildSubcategoryField() {
+  Widget _buildCategoryField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        DropdownButtonFormField<int>(
-          value: _selectedSubcategoryId,
-          decoration: const InputDecoration(labelText: 'Subcategory *'),
-          items: _subcategories
-              .map(
-                (sc) => DropdownMenuItem<int>(
-                  value: sc['subcategoryId'] as int,
-                  child: Text(sc['name'] ?? ''),
-                ),
-              )
-              .toList(),
-          onChanged: (v) => setState(() => _selectedSubcategoryId = v),
-          validator: (v) => v == null ? 'Subcategory is required' : null,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<int>(
+                value: _categories.any((c) => c.categoryId == _selectedCategoryId)
+                    ? _selectedCategoryId
+                    : null,
+                decoration: const InputDecoration(labelText: 'Category *'),
+                items: _categories
+                    .map(
+                      (c) => DropdownMenuItem<int>(
+                        value: c.categoryId,
+                        child: Text(c.name),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _loadingCategories
+                    ? null
+                    : (v) {
+                        setState(() {
+                          _selectedCategoryId = v;
+                          final next = _subcategories
+                              .where((sc) => sc.categoryId == v)
+                              .toList();
+                          _selectedSubcategoryId = next.isNotEmpty
+                              ? next.first.subcategoryId
+                              : null;
+                        });
+                      },
+                validator: (v) => v == null ? 'Category is required' : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: _canEdit && !_loadingCategories
+                  ? _showAddCategoryDialog
+                  : null,
+              icon: const Icon(Icons.add_circle_outline),
+              color: AppTheme.primary,
+              tooltip: 'Add category',
+            ),
+          ],
         ),
-        if (_subcategories.isEmpty)
+        if (_loadingCategories)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Loading categories...',
+              style: GoogleFonts.ibmPlexSans(
+                fontSize: 12,
+                color: AppTheme.outline,
+              ),
+            ),
+          )
+        else if (_categories.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'No categories yet. Tap + to add one.',
+              style: GoogleFonts.ibmPlexSans(
+                fontSize: 12,
+                color: AppTheme.outline,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSubcategoryField() {
+    final filtered = _filteredSubcategories;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<int>(
+                value: filtered.any(
+                      (sc) => sc.subcategoryId == _selectedSubcategoryId,
+                    )
+                    ? _selectedSubcategoryId
+                    : null,
+                decoration: const InputDecoration(labelText: 'Subcategory *'),
+                items: filtered
+                    .map(
+                      (sc) => DropdownMenuItem<int>(
+                        value: sc.subcategoryId,
+                        child: Text(sc.name),
+                      ),
+                    )
+                    .toList(),
+                onChanged: _selectedCategoryId == null || _loadingCategories
+                    ? null
+                    : (v) => setState(() => _selectedSubcategoryId = v),
+                validator: (v) => v == null ? 'Subcategory is required' : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: _canEdit && !_loadingCategories && _selectedCategoryId != null
+                  ? _showAddSubcategoryDialog
+                  : null,
+              icon: const Icon(Icons.add_circle_outline),
+              color: AppTheme.primary,
+              tooltip: 'Add subcategory',
+            ),
+          ],
+        ),
+        if (_loadingCategories)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               'Loading subcategories...',
+              style: GoogleFonts.ibmPlexSans(
+                fontSize: 12,
+                color: AppTheme.outline,
+              ),
+            ),
+          )
+        else if (_selectedCategoryId != null && filtered.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'No subcategories for this category. Tap + to add one.',
               style: GoogleFonts.ibmPlexSans(
                 fontSize: 12,
                 color: AppTheme.outline,

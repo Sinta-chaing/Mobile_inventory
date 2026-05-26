@@ -323,7 +323,7 @@ class _BIProfitBreakdownWidgetState extends State<BIProfitBreakdownWidget> {
                           cells: [
                             DataCell(
                               Text(
-                                item.orderId,
+                                item.orderId.toString(),
                                 style: GoogleFonts.ibmPlexMono(
                                   fontSize: 10,
                                   color: const Color(0xFF1A1C1B),
@@ -458,7 +458,7 @@ class _BIProfitBreakdownWidgetState extends State<BIProfitBreakdownWidget> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.orderId,
+                      item.orderId.toString(),
                       style: GoogleFonts.ibmPlexMono(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
@@ -559,7 +559,7 @@ class _BIProfitBreakdownWidgetState extends State<BIProfitBreakdownWidget> {
 }
 
 class _ProfitItem {
-  final String orderId;
+  final int orderId;
   final String itemName;
   final int quantity;
   final double costPrice;

@@ -39,14 +39,26 @@ class _BIKpiGridWidgetState extends State<BIKpiGridWidget>
       }
     }
 
-    // Calculate Gross Profit (simplified: Revenue - Inventory Cost)
+    // Calculate COGS and Gross Profit from actual paid orders
+    double cogs = 0;
+    for (var order in widget.orders) {
+      if (isCurrentMonth(order.createdDate)) {
+        for (var item in order.items) {
+          final stockItem = widget.inventory.cast<StockItem?>().firstWhere(
+            (s) => s!.name.toLowerCase() == item.itemName.toLowerCase(),
+            orElse: () => null,
+          );
+          cogs += item.quantity * (stockItem?.unitCost ?? 0.0);
+        }
+      }
+    }
+    double grossProfit = revenueMtd - cogs;
+
     double inventoryTotalCost = 0;
     for (var item in widget.inventory) {
       inventoryTotalCost += item.unitCost * item.quantity;
     }
-    double grossProfit = revenueMtd * 0.40; // Assuming 40% profit margin
 
-    // Calculate Inventory Value
     double inventoryValue = inventoryTotalCost;
 
     // Calculate Low Stock Alerts
@@ -271,10 +283,11 @@ class _KpiCard extends StatelessWidget {
                 Text(
                   value,
                   style: GoogleFonts.ibmPlexMono(
-                    fontSize: 20,
+                    fontSize: 16,
                     fontWeight: FontWeight.w700,
                     color: const Color(0xFF1A1C1B),
                     fontFeatures: const [FontFeature.tabularFigures()],
+                    height: 1.2,
                   ),
                 ),
                 const SizedBox(height: 2),

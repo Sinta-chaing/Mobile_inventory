@@ -122,8 +122,12 @@ class _SupplierScreenState extends State<SupplierScreen> {
       final matchSearch =
           _searchQuery.isEmpty ||
           s.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          (s.contactPerson?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false) ||
-          (s.address?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false);
+          (s.contactPerson?.toLowerCase().contains(
+                _searchQuery.toLowerCase(),
+              ) ??
+              false) ||
+          (s.address?.toLowerCase().contains(_searchQuery.toLowerCase()) ??
+              false);
       return matchSearch;
     }).toList();
   }
@@ -628,7 +632,6 @@ class _SupplierScreenState extends State<SupplierScreen> {
     final contactCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
     final phoneCtrl = TextEditingController();
-    final categoryCtrl = TextEditingController();
     final addressCtrl = TextEditingController();
 
     showDialog(

@@ -1,17 +1,21 @@
 import 'package:flutter/services.dart';
 
 import '../core/app_export.dart';
+import '../services/config_service.dart';
 import '../services/order_service.dart';
 import '../services/inventory_service.dart';
 import '../services/customer_data_service.dart';
 import '../services/supplier_data_service.dart';
 import '../services/user_service.dart';
 import '../services/api_service.dart';
-import '../utils/rbac_helper.dart';
 import '../widgets/custom_error_widget.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize configuration from env.json
+  final configService = ConfigService();
+  await configService.init();
 
   // Initialize services for persistent storage
   await OrderService.init();
