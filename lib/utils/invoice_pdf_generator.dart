@@ -5,18 +5,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:khqr_sdk/khqr_sdk.dart';
 import '../presentation/purchase_screen/purchase_screen.dart';
-
-class KhqrConfig {
-  static const String bakongAccountId = 'oun_mengheang@aclb';
-  static const String acquiringBank = 'ACLEDA Bank';
-  static const String merchantId = 'TEMP001';
-  static const String merchantName = 'Oun MengHeang';
-  static const String currency = 'KHR';
-  static const String merchantCity = 'Phnom Penh';
-  static const String storeLabel = 'InvenTrack Store';
-  static const String phoneNumber = '';
-  static const String terminalLabel = 'InvenTrack';
-}
+import 'khqr_config.dart';
 
 class InvoicePdfGenerator {
   static Future<void> generateAndPreviewPdf(
@@ -372,7 +361,7 @@ class InvoicePdfGenerator {
                           pw.SizedBox(height: 3),
                           // Receiver Name
                           pw.Text(
-                            KhqrConfig.merchantName.toUpperCase(),
+                            KhqrConfig.merchantName().toUpperCase(),
                             textAlign: pw.TextAlign.center,
                             style: pw.TextStyle(
                               color: PdfColors.black,
@@ -502,13 +491,8 @@ class InvoicePdfGenerator {
       final expire = DateTime.now().millisecondsSinceEpoch + (10 * 3600000);
 
       // Create merchant info
-      final info = MerchantInfo(
-        bakongAccountId: KhqrConfig.bakongAccountId,
-        acquiringBank: KhqrConfig.acquiringBank,
-        merchantId: KhqrConfig.merchantId,
-        merchantName: KhqrConfig.merchantName,
-        currency: KhqrCurrency.usd,
-        amount: amountInUsd,
+      final info = KhqrConfig.merchantInfo(
+        amountInUsd: amountInUsd,
         expirationTimestamp: expire,
       );
 
