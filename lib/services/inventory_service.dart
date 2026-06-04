@@ -50,6 +50,30 @@ class InventoryService {
     }
   }
 
+  static Future<List<Map<String, dynamic>>> fetchProductRecommendations(int productId) async {
+    try {
+      if (!_apiService.isAuthenticated()) {
+        print('⚠️ Not authenticated - skipping recommendations');
+        return [];
+      }
+      final response = await _apiService.get(
+        '/api/product-associations/by_product/?product_id=$productId',
+        fromJson: (data) {
+          if (data is List) {
+            return data.map((item) => item as Map<String, dynamic>).toList();
+          }
+          return <Map<String, dynamic>>[];
+        },
+      );
+      print('✅ Fetched ${response.length} product recommendations for product ID $productId');
+      return response;
+    } catch (e) {
+      print('❌ Failed to fetch product recommendations: $e');
+      return [];
+    }
+  }
+
+
   static StockItem _mapInventoryToStockItem(Map<String, dynamic> map) {
     final config = ConfigService();
     final rawImage = (map['productImage'] ?? map['image'] ?? '').toString();

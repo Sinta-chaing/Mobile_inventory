@@ -1039,6 +1039,26 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     PaymentMethod selectedPayment = PaymentMethod.cash;
     final createdByController = TextEditingController(text: 'Current User');
     List<OrderItem> addedItems = [];
+    List<Map<String, dynamic>> recommendations = [];
+    bool isLoadingRecommendations = false;
+
+    Future<void> fetchRecommendations(int productId, StateSetter dialogSetState) async {
+      dialogSetState(() {
+        isLoadingRecommendations = true;
+        recommendations = [];
+      });
+      try {
+        final results = await InventoryService.fetchProductRecommendations(productId);
+        dialogSetState(() {
+          recommendations = results;
+          isLoadingRecommendations = false;
+        });
+      } catch (e) {
+        dialogSetState(() {
+          isLoadingRecommendations = false;
+        });
+      }
+    }
 
     showDialog(
       context: context,
@@ -1177,6 +1197,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                                                   selectedProduct = null;
                                                   sellingPriceController
                                                       .clear();
+                                                  recommendations = [];
                                                 });
                                               },
                                             ),
@@ -1191,6 +1212,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                                         setState(() {
                                           selectedProduct = null;
                                           sellingPriceController.clear();
+                                          recommendations = [];
                                         });
                                       },
                                     )
@@ -1201,6 +1223,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                                 if (value.isEmpty) {
                                   selectedProduct = null;
                                   sellingPriceController.clear();
+                                  recommendations = [];
                                 }
                               });
                             },
@@ -1255,6 +1278,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                                                   product.sellingPrice
                                                       .toStringAsFixed(2);
                                             });
+                                            fetchRecommendations(product.productId, setState);
                                           },
                                           child: Padding(
                                             padding: const EdgeInsets.symmetric(
@@ -1298,6 +1322,86 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                           const SizedBox(height: 12),
                           // Quantity and Selling Price
                           if (selectedProduct != null) ...[
+                            if (isLoadingRecommendations)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12.0),
+                                child: Center(
+                                  child: SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                ),
+                              )
+                            else if (recommendations.isNotEmpty) ...[
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Usually Bought Together',
+                                      style: GoogleFonts.dmSans(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 13,
+                                        color: AppTheme.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      height: 38,
+                                      child: ListView.builder(
+                                        scrollDirection: Axis.horizontal,
+                                        itemCount: recommendations.length,
+                                        itemBuilder: (context, idx) {
+                                          final rec = recommendations[idx];
+                                          final name = rec['productName'] ?? '';
+                                          final price = double.tryParse(rec['salePrice']?.toString() ?? '0') ?? 0.0;
+                                          final pct = double.tryParse(rec['associationPercentage']?.toString() ?? '0') ?? 0.0;
+                                          return Padding(
+                                            padding: const EdgeInsets.only(right: 8.0),
+                                            child: ActionChip(
+                                              onPressed: () {
+                                                setState(() {
+                                                  addedItems.add(
+                                                    OrderItem(
+                                                      productId: rec['productId'] as int,
+                                                      itemName: name,
+                                                      quantity: 1,
+                                                      unitPrice: price,
+                                                      discount: 0.0,
+                                                    ),
+                                                  );
+                                                });
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('Added $name to order'),
+                                                    duration: const Duration(seconds: 1),
+                                                    backgroundColor: AppTheme.success,
+                                                  ),
+                                                );
+                                              },
+                                              backgroundColor: AppTheme.primary.withAlpha(12),
+                                              side: BorderSide(color: AppTheme.primary.withAlpha(40)),
+                                              avatar: Icon(Icons.add_circle_outline, size: 16, color: AppTheme.primary),
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                              label: Text(
+                                                '$name (\$${price.toStringAsFixed(2)}) • ${pct.toStringAsFixed(0)}%',
+                                                style: GoogleFonts.dmSans(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppTheme.primary,
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                             Row(
                               children: [
                                 Expanded(
@@ -1419,6 +1523,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                                     quantityController.text = '1';
                                     sellingPriceController.clear();
                                     discountController.text = '0';
+                                    recommendations = [];
                                   });
                                 },
                                 icon: const Icon(Icons.add),
