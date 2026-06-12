@@ -96,12 +96,14 @@ class _SupplierScreenState extends State<SupplierScreen> {
       final suppliers = backendSuppliers
           .map((s) => Supplier.fromBackend(s))
           .toList();
+      if (!mounted) return;
       setState(() {
         _suppliers = suppliers;
         _isLoading = false;
       });
     } catch (e) {
       print('Error loading suppliers: $e');
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -187,25 +189,28 @@ class _SupplierScreenState extends State<SupplierScreen> {
   }
 
   Widget _buildGlassNavBar() {
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(220),
-              borderRadius: BorderRadius.circular(20),
-              border: Border(
-                top: BorderSide(
-                  color: AppTheme.outlineVariant.withAlpha(100),
-                  width: 1,
+    return SizedBox(
+      height: 76,
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(220),
+                borderRadius: BorderRadius.circular(20),
+                border: Border(
+                  top: BorderSide(
+                    color: AppTheme.outlineVariant.withAlpha(100),
+                    width: 1,
+                  ),
                 ),
               ),
-            ),
-            child: AppNavigation(
-              currentIndex: _selectedNavIndex,
-              onDestinationSelected: _onNavTap,
+              child: AppNavigation(
+                currentIndex: _selectedNavIndex,
+                onDestinationSelected: _onNavTap,
+              ),
             ),
           ),
         ),
@@ -717,6 +722,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
                   final retryCreated = await SupplierDataService.createSupplier(
                     payload,
                   );
+                  if (!mounted) return;
                   if (retryCreated != null) {
                     setState(() {
                       _suppliers.insert(0, Supplier.fromBackend(retryCreated));
@@ -740,6 +746,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
               }
 
               final created = await SupplierDataService.createSupplier(payload);
+              if (!mounted) return;
               if (created != null) {
                 setState(() {
                   _suppliers.insert(0, Supplier.fromBackend(created));

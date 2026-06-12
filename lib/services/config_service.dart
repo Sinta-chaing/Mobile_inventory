@@ -27,7 +27,7 @@ class ConfigService {
       print('❌ Error loading configuration: $e');
       // Set default values if loading fails
       _config = {
-        'DJANGO_API_URL': 'https://vuthserver.tailf87741.ts.net/',
+        'DJANGO_API_URL': 'http://127.0.0.1:8000/',
         'SUPABASE_URL': 'https://dummy.supabase.co',
         'SUPABASE_ANON_KEY': 'dummykey',
       };
@@ -37,7 +37,7 @@ class ConfigService {
 
   /// Get the Django API base URL
   String get djangoApiUrl {
-    final url = _config['DJANGO_API_URL'] ?? 'https://vuthserver.tailf87741.ts.net/';
+    final url = _config['DJANGO_API_URL'] ?? 'http://127.0.0.1:8000/';
     return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
   }
 

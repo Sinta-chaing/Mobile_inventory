@@ -16,44 +16,6 @@ class AppNavigation extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        // Main 4 navigation items - Custom implementation
-        Expanded(
-          child: Row(
-            children: [
-              _buildNavItem(
-                0,
-                Icons.inventory_2_outlined,
-                Icons.inventory_2_rounded,
-                'Inventory',
-              ),
-              _buildNavItem(
-                1,
-                Icons.shopping_cart_outlined,
-                Icons.shopping_cart_rounded,
-                'Purchase',
-              ),
-              _buildNavItem(
-                2,
-                Icons.people_outline_rounded,
-                Icons.people_rounded,
-                'Customers',
-              ),
-              _buildNavItem(
-                3,
-                Icons.local_shipping_outlined,
-                Icons.local_shipping_rounded,
-                'Suppliers',
-              ),
-            ],
-          ),
-        ),
-        // Divider to isolate BI
-        Container(
-          width: 1,
-          height: 24,
-          color: Colors.black,
-          margin: const EdgeInsets.symmetric(horizontal: 8),
-        ),
         // BI icon container with matching style
         GestureDetector(
           onTap: () => onDestinationSelected(4),
@@ -99,6 +61,44 @@ class AppNavigation extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ),
+        // Divider to isolate BI
+        Container(
+          width: 1,
+          height: 24,
+          color: Colors.black,
+          margin: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+        // Main 4 navigation items - Custom implementation
+        Expanded(
+          child: Row(
+            children: [
+              _buildNavItem(
+                0,
+                Icons.inventory_2_outlined,
+                Icons.inventory_2_rounded,
+                'Inventory',
+              ),
+              _buildNavItem(
+                1,
+                Icons.shopping_cart_outlined,
+                Icons.shopping_cart_rounded,
+                'Purchase',
+              ),
+              _buildNavItem(
+                2,
+                Icons.people_outline_rounded,
+                Icons.people_rounded,
+                'Customers',
+              ),
+              _buildNavItem(
+                3,
+                Icons.local_shipping_outlined,
+                Icons.local_shipping_rounded,
+                'Suppliers',
+              ),
+            ],
           ),
         ),
       ],

@@ -246,6 +246,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
           .toList();
       print('🔄 Purchase screen loaded ${loadedOrders.length} orders');
 
+      if (!mounted) return;
       setState(() {
         _customers = customers;
         _products = products;
@@ -254,6 +255,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
       });
     } catch (e) {
       print('❌ Error loading data in purchase screen: $e');
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -399,25 +401,28 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   }
 
   Widget _buildGlassNavBar() {
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(220),
-              borderRadius: BorderRadius.circular(20),
-              border: Border(
-                top: BorderSide(
-                  color: AppTheme.outlineVariant.withAlpha(100),
-                  width: 1,
+    return SizedBox(
+      height: 76,
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(220),
+                borderRadius: BorderRadius.circular(20),
+                border: Border(
+                  top: BorderSide(
+                    color: AppTheme.outlineVariant.withAlpha(100),
+                    width: 1,
+                  ),
                 ),
               ),
-            ),
-            child: AppNavigation(
-              currentIndex: _selectedNavIndex,
-              onDestinationSelected: _onNavTap,
+              child: AppNavigation(
+                currentIndex: _selectedNavIndex,
+                onDestinationSelected: _onNavTap,
+              ),
             ),
           ),
         ),
@@ -943,6 +948,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
         order: order,
         onMarkPaid: () async {
           final success = await OrderService.markOrderAsPaid(order.invoiceId);
+          if (!mounted) return;
           if (success) {
             final invoices = await OrderService.fetchOrders();
             if (mounted) {
@@ -1849,6 +1855,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                               }
                             }
 
+                            if (!mounted) return;
                             this.setState(() {
                               _orders.insert(0, newOrder);
                             });

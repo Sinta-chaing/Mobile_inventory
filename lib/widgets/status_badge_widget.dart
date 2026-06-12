@@ -103,6 +103,35 @@ class StatusBadgeWidget extends StatelessWidget {
     }
   }
 
+  factory StatusBadgeWidget.product(String status) {
+    switch (status.toLowerCase()) {
+      case 'active':
+        return const StatusBadgeWidget(
+          label: 'Active',
+          backgroundColor: AppTheme.successContainer,
+          textColor: AppTheme.success,
+        );
+      case 'inactive':
+        return const StatusBadgeWidget(
+          label: 'Inactive',
+          backgroundColor: Color(0xFFE5E7EB),
+          textColor: Color(0xFF374151),
+        );
+      case 'discount':
+        return const StatusBadgeWidget(
+          label: 'Discount',
+          backgroundColor: AppTheme.warningContainer,
+          textColor: AppTheme.warning,
+        );
+      default:
+        return StatusBadgeWidget(
+          label: status,
+          backgroundColor: const Color(0xFFE5E7EB),
+          textColor: const Color(0xFF374151),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(

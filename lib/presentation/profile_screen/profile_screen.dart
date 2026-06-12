@@ -78,25 +78,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       bottomNavigationBar: isTablet
           ? null
-          : ClipRect(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(220),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border(
-                        top: BorderSide(
-                          color: AppTheme.outlineVariant.withAlpha(100),
-                          width: 1,
+          : SizedBox(
+              height: 76,
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(220),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border(
+                          top: BorderSide(
+                            color: AppTheme.outlineVariant.withAlpha(100),
+                            width: 1,
+                          ),
                         ),
                       ),
-                    ),
-                    child: AppNavigation(
-                      currentIndex: _selectedNavIndex,
-                      onDestinationSelected: (_) {},
+                      child: AppNavigation(
+                        currentIndex: _selectedNavIndex,
+                        onDestinationSelected: (_) {},
+                      ),
                     ),
                   ),
                 ),

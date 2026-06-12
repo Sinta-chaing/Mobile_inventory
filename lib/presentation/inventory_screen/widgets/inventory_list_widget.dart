@@ -10,6 +10,7 @@ class InventoryListWidget extends StatelessWidget {
   final void Function(StockItem) onEdit;
   final void Function(StockItem) onDelete;
   final bool isTablet;
+  final Map<int, double>? productScores;
 
   const InventoryListWidget({
     super.key,
@@ -17,6 +18,7 @@ class InventoryListWidget extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     this.isTablet = false,
+    this.productScores,
   });
 
   @override
@@ -43,11 +45,14 @@ class InventoryListWidget extends StatelessWidget {
         ),
         itemCount: items.length,
         itemBuilder: (context, index) {
+          final item = items[index];
+          final score = productScores?[int.tryParse(item.id) ?? -1];
           return _AnimatedItemCard(
-            item: items[index],
+            item: item,
             index: index,
             onEdit: onEdit,
             onDelete: onDelete,
+            score: score,
           );
         },
       );
@@ -58,11 +63,14 @@ class InventoryListWidget extends StatelessWidget {
       itemCount: items.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
+        final item = items[index];
+        final score = productScores?[int.tryParse(item.id) ?? -1];
         return _AnimatedItemCard(
-          item: items[index],
+          item: item,
           index: index,
           onEdit: onEdit,
           onDelete: onDelete,
+          score: score,
         );
       },
     );
@@ -74,12 +82,14 @@ class _AnimatedItemCard extends StatefulWidget {
   final int index;
   final void Function(StockItem) onEdit;
   final void Function(StockItem) onDelete;
+  final double? score;
 
   const _AnimatedItemCard({
     required this.item,
     required this.index,
     required this.onEdit,
     required this.onDelete,
+    this.score,
   });
 
   @override
@@ -181,6 +191,7 @@ class _AnimatedItemCardState extends State<_AnimatedItemCard>
           child: InventoryItemCardWidget(
             item: widget.item,
             onTap: () => widget.onEdit(widget.item),
+            score: widget.score,
           ),
         ),
       ),

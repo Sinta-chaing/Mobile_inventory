@@ -8,6 +8,13 @@ class InventorySearchFilterWidget extends StatelessWidget {
   final ValueChanged<String> onSearchChanged;
   final VoidCallback? onAddItem;
   final VoidCallback? onImageSearch;
+  
+  final String selectedCategory;
+  final ValueChanged<String> onCategoryChanged;
+  final String selectedStatus;
+  final ValueChanged<String> onStatusChanged;
+  final String selectedStockStatus;
+  final ValueChanged<String> onStockStatusChanged;
 
   const InventorySearchFilterWidget({
     super.key,
@@ -16,7 +23,61 @@ class InventorySearchFilterWidget extends StatelessWidget {
     required this.onSearchChanged,
     this.onAddItem,
     this.onImageSearch,
+    required this.selectedCategory,
+    required this.onCategoryChanged,
+    required this.selectedStatus,
+    required this.onStatusChanged,
+    required this.selectedStockStatus,
+    required this.onStockStatusChanged,
   });
+
+  Widget _buildDropdownFilter({
+    required String label,
+    required String value,
+    required List<String> items,
+    required ValueChanged<String> onChanged,
+  }) {
+    final dropdownValue = items.contains(value) ? value : (items.isNotEmpty ? items.first : 'All');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.outlineVariant.withAlpha(150)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: dropdownValue,
+          isDense: true,
+          style: GoogleFonts.ibmPlexSans(
+            fontSize: 13,
+            color: const Color(0xFF1A1C1B),
+            fontWeight: FontWeight.w500,
+          ),
+          icon: const Icon(Icons.arrow_drop_down, size: 18, color: AppTheme.outline),
+          items: items.map((String val) {
+            return DropdownMenuItem<String>(
+              value: val,
+              child: Text(
+                '$label: $val',
+                style: GoogleFonts.ibmPlexSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF1A1C1B),
+                ),
+              ),
+            );
+          }).toList(),
+          onChanged: (val) {
+            if (val != null) {
+              onChanged(val);
+            }
+          },
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -147,6 +208,35 @@ class InventorySearchFilterWidget extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          // Horizontal scrollable filter row
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildDropdownFilter(
+                  label: 'category',
+                  value: selectedCategory,
+                  items: categories,
+                  onChanged: onCategoryChanged,
+                ),
+                const SizedBox(width: 8),
+                _buildDropdownFilter(
+                  label: 'Status',
+                  value: selectedStatus,
+                  items: const ['All', 'Active', 'Inactive', 'Discount'],
+                  onChanged: onStatusChanged,
+                ),
+                const SizedBox(width: 8),
+                _buildDropdownFilter(
+                  label: 'Stock',
+                  value: selectedStockStatus,
+                  items: const ['All', 'In Stock', 'Out of Stock', 'Low Stock'],
+                  onChanged: onStockStatusChanged,
+                ),
+              ],
+            ),
           ),
         ],
       ),

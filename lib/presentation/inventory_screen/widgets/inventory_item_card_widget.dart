@@ -8,11 +8,13 @@ import '../inventory_screen.dart';
 class InventoryItemCardWidget extends StatelessWidget {
   final StockItem item;
   final VoidCallback onTap;
+  final double? score;
 
   const InventoryItemCardWidget({
     super.key,
     required this.item,
     required this.onTap,
+    this.score,
   });
 
   StockStatus _mapStatus(StockStatusEnum s) {
@@ -24,6 +26,33 @@ class InventoryItemCardWidget extends StatelessWidget {
       case StockStatusEnum.outOfStock:
         return StockStatus.outOfStock;
     }
+  }
+
+  Widget _buildConfidenceBadge(double score) {
+    final pct = (score * 100).toStringAsFixed(1);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryContainer,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppTheme.primary.withAlpha(80)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.flash_on_rounded, size: 10, color: AppTheme.primary),
+          const SizedBox(width: 2),
+          Text(
+            '$pct% Match',
+            style: GoogleFonts.ibmPlexSans(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.primary,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -85,7 +114,18 @@ class InventoryItemCardWidget extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        StatusBadgeWidget.stock(_mapStatus(item.status)),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (score != null) ...[
+                              _buildConfidenceBadge(score!),
+                              const SizedBox(width: 4),
+                            ],
+                            StatusBadgeWidget.product(item.productStatus),
+                            const SizedBox(width: 4),
+                            StatusBadgeWidget.stock(_mapStatus(item.status)),
+                          ],
+                        ),
                       ],
                     ),
                     const SizedBox(height: 4),

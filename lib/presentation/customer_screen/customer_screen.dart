@@ -96,12 +96,14 @@ class _CustomerScreenState extends State<CustomerScreen> {
       final customers = backendCustomers
           .map((c) => Customer.fromBackend(c))
           .toList();
+      if (!mounted) return;
       setState(() {
         _customers = customers;
         _isLoading = false;
       });
     } catch (e) {
       print('Error loading customers: $e');
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -182,25 +184,28 @@ class _CustomerScreenState extends State<CustomerScreen> {
   }
 
   Widget _buildGlassNavBar() {
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withAlpha(220),
-              borderRadius: BorderRadius.circular(20),
-              border: Border(
-                top: BorderSide(
-                  color: AppTheme.outlineVariant.withAlpha(100),
-                  width: 1,
+    return SizedBox(
+      height: 76,
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(220),
+                borderRadius: BorderRadius.circular(20),
+                border: Border(
+                  top: BorderSide(
+                    color: AppTheme.outlineVariant.withAlpha(100),
+                    width: 1,
+                  ),
                 ),
               ),
-            ),
-            child: AppNavigation(
-              currentIndex: _selectedNavIndex,
-              onDestinationSelected: _onNavTap,
+              child: AppNavigation(
+                currentIndex: _selectedNavIndex,
+                onDestinationSelected: _onNavTap,
+              ),
             ),
           ),
         ),

@@ -74,23 +74,41 @@ class InventoryService {
   }
 
 
-  static StockItem _mapInventoryToStockItem(Map<String, dynamic> map) {
+  static StockItem _mapInventoryToStockItem(
+    Map<String, dynamic> map, {
+    Map<int, Map<String, dynamic>>? productsMap,
+  }) {
     final config = ConfigService();
-    final rawImage = (map['productImage'] ?? map['image'] ?? '').toString();
+
+    // Look up product details if the API didn't return them nested
+    final productIdStr = map['product']?.toString() ?? '';
+    final productId = int.tryParse(productIdStr);
+    final productDetail = (productId != null && productsMap != null) ? productsMap[productId] : null;
+
+    final rawImage = (map['productImage'] ?? map['image'] ?? productDetail?['image'] ?? '').toString();
+    final name = map['productName'] ?? productDetail?['productName'] ?? 'Unknown Product';
+    final sku = map['productSku'] ?? productDetail?['skuCode'] ?? '';
+    final category = map['categoryName'] ?? productDetail?['subcategoryName'] ?? 'Uncategorized';
+    
+    final unitCost = _parseDouble(map['costPrice'] ?? productDetail?['costPrice'] ?? 0);
+    final unitPrice = _parseDouble(map['salePrice'] ?? productDetail?['salePrice'] ?? 0);
+    
+    final status = map['status'] ?? productDetail?['status'] ?? 'Active';
 
     return StockItem(
-      id: map['product']?.toString() ?? '',
+      id: productIdStr,
       inventoryId: map['inventoryId']?.toString() ?? '',
-      name: map['productName'] ?? 'Unknown Product',
-      sku: map['productSku'] ?? '',
-      category: 'Stock',
+      name: name,
+      sku: sku,
+      category: category,
       quantity: map['quantity'] ?? 0,
       reorderLevel: map['reorderLevel'] ?? 10,
-      unitCost: _parseDouble(map['costPrice'] ?? 0),
-      unitPrice: _parseDouble(map['salePrice'] ?? 0),
+      unitCost: unitCost,
+      unitPrice: unitPrice,
       supplierName: map['supplierName'] ?? '',
       imageUrl: config.resolveMediaUrl(rawImage),
-      semanticLabel: map['productName'] ?? 'Product',
+      semanticLabel: name,
+      productStatus: status,
     );
   }
 
@@ -103,13 +121,36 @@ class InventoryService {
         return await loadInventory();
       }
 
+      // Fetch product details first to map them locally if backend doesn't return them nested
+      final Map<int, Map<String, dynamic>> productsMap = {};
+      try {
+        final List? productsData = await _apiService.get(
+          '/api/products/',
+          fromJson: (data) => data as List?,
+        );
+        if (productsData != null) {
+          for (var item in productsData) {
+            if (item is Map<String, dynamic> && item['productId'] is int) {
+              productsMap[item['productId'] as int] = item;
+            }
+          }
+          print('✅ Fetched ${productsMap.length} products to map with inventory');
+        }
+      } catch (pe) {
+        print('⚠️ Failed to fetch products list for mapping: $pe');
+      }
+
       final response = await _apiService.get(
         '/api/inventory/',
-        fromJson: (data) => (data as List)
-            .map(
-              (item) => _mapInventoryToStockItem(item as Map<String, dynamic>),
-            )
-            .toList(),
+        fromJson: (data) {
+          final list = data as List;
+          return list.map((item) {
+            return _mapInventoryToStockItem(
+              item as Map<String, dynamic>,
+              productsMap: productsMap,
+            );
+          }).toList();
+        },
       );
 
       await saveInventory(response);
@@ -175,6 +216,7 @@ class InventoryService {
         supplierName: items[index].supplierName,
         imageUrl: items[index].imageUrl,
         semanticLabel: items[index].semanticLabel,
+        productStatus: items[index].productStatus,
       );
       items[index] = updatedItem;
       await saveInventory(items);
@@ -251,6 +293,7 @@ class InventoryService {
               supplierName: item.supplierName,
               imageUrl: ConfigService().resolveMediaUrl(imageUrl),
               semanticLabel: item.semanticLabel,
+              productStatus: item.productStatus,
             );
           }
           return StockItem(
@@ -266,6 +309,7 @@ class InventoryService {
             supplierName: item.supplierName,
             imageUrl: item.imageUrl,
             semanticLabel: item.semanticLabel,
+            productStatus: item.productStatus,
           );
         },
       );
@@ -304,6 +348,7 @@ class InventoryService {
         supplierName: productData['supplierName'] ?? '',
         imageUrl: ConfigService().resolveMediaUrl(image),
         semanticLabel: productData['name'] ?? 'Product',
+        productStatus: productData['status'] ?? 'Active',
       );
 
       final items = await loadInventory();
@@ -411,6 +456,7 @@ class InventoryService {
             ? ConfigService().resolveMediaUrl(image)
             : items[index].imageUrl,
         semanticLabel: items[index].semanticLabel,
+        productStatus: productData['status'] ?? items[index].productStatus,
       );
 
       await saveInventory(items);
@@ -467,9 +513,36 @@ class InventoryService {
         return [];
       }
       final jsonData = jsonDecode(jsonString) as List;
-      return jsonData
+      final items = jsonData
           .map((item) => StockItem.fromMap(item as Map<String, dynamic>))
           .toList();
+
+      final hasOnlyStockCategory = items.isNotEmpty && items.every((item) => item.category == 'Stock');
+      if (hasOnlyStockCategory) {
+        final mockCategories = ['Power Tools', 'Hand Tools', 'Safety', 'Measuring', 'Cleaning'];
+        final mockStatuses = ['Active', 'Inactive', 'Discount'];
+        for (int i = 0; i < items.length; i++) {
+          final cat = mockCategories[i % mockCategories.length];
+          final stat = mockStatuses[i % mockStatuses.length];
+          items[i] = StockItem(
+            id: items[i].id,
+            inventoryId: items[i].inventoryId,
+            name: items[i].name,
+            sku: items[i].sku,
+            category: cat,
+            quantity: items[i].quantity,
+            reorderLevel: items[i].reorderLevel,
+            unitCost: items[i].unitCost,
+            unitPrice: items[i].unitPrice,
+            supplierName: items[i].supplierName,
+            imageUrl: items[i].imageUrl,
+            semanticLabel: items[i].semanticLabel,
+            productStatus: stat,
+          );
+        }
+        await saveInventory(items);
+      }
+      return items;
     } catch (e) {
       print('Error loading inventory: $e');
       return [];

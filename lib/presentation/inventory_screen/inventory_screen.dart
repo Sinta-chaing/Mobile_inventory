@@ -12,7 +12,7 @@ import './widgets/inventory_item_form_widget.dart';
 import './widgets/inventory_list_widget.dart';
 import './widgets/inventory_search_filter_widget.dart';
 import './widgets/inventory_stats_strip_widget.dart';
-import './widgets/image_crop_screen.dart';
+import './widgets/interactive_image_search_screen.dart';
 
 // Stock item model
 enum StockStatusEnum { inStock, lowStock, outOfStock }
@@ -30,6 +30,7 @@ class StockItem {
   final String supplierName;
   final String imageUrl;
   final String semanticLabel;
+  final String productStatus;
 
   StockItem({
     required this.id,
@@ -44,6 +45,7 @@ class StockItem {
     required this.supplierName,
     required this.imageUrl,
     required this.semanticLabel,
+    this.productStatus = 'Active',
   });
 
   StockStatusEnum get status {
@@ -68,6 +70,7 @@ class StockItem {
       supplierName: map['supplierName'] as String,
       imageUrl: map['imageUrl'] as String,
       semanticLabel: map['semanticLabel'] as String,
+      productStatus: map['productStatus'] as String? ?? 'Active',
     );
   }
 
@@ -85,6 +88,7 @@ class StockItem {
       'supplierName': supplierName,
       'imageUrl': imageUrl,
       'semanticLabel': semanticLabel,
+      'productStatus': productStatus,
     };
   }
 }
@@ -111,17 +115,19 @@ class _InventoryScreenState extends State<InventoryScreen>
 
   late List<StockItem> _items;
 
-  // Unused mock data - removed to fix analyzer warning
-  // static final List<Map<String, dynamic>> _itemMaps = [ ... ];
+  String _selectedCategory = 'All';
+  String _selectedStatus = 'All';
+  String _selectedStockStatus = 'All';
 
-  final List<String> _categories = [
-    'All',
-    'Power Tools',
-    'Hand Tools',
-    'Safety',
-    'Measuring',
-    'Cleaning',
-  ];
+  List<String> get _categoriesList {
+    final list = _items.map((item) => item.category).toSet().toList();
+    list.sort();
+    final categories = ['All', ...list];
+    if (!categories.contains(_selectedCategory)) {
+      _selectedCategory = 'All';
+    }
+    return categories;
+  }
 
   @override
   void initState() {
@@ -164,7 +170,31 @@ class _InventoryScreenState extends State<InventoryScreen>
           item.sku.toLowerCase().contains(_searchQuery.toLowerCase());
       if (!matchesSearch) return false;
       if (_isImageSearchActive) {
-        return _imageSearchProductIds.contains(int.tryParse(item.id) ?? -1);
+        if (!_imageSearchProductIds.contains(int.tryParse(item.id) ?? -1)) {
+          return false;
+        }
+      }
+      if (_selectedCategory != 'All') {
+        if (item.category.toLowerCase() != _selectedCategory.toLowerCase()) {
+          return false;
+        }
+      }
+      if (_selectedStatus != 'All') {
+        if (item.productStatus.toLowerCase() != _selectedStatus.toLowerCase()) {
+          return false;
+        }
+      }
+      if (_selectedStockStatus != 'All') {
+        final itemStockStatus = item.status;
+        if (_selectedStockStatus == 'In Stock' && itemStockStatus != StockStatusEnum.inStock) {
+          return false;
+        }
+        if (_selectedStockStatus == 'Out of Stock' && itemStockStatus != StockStatusEnum.outOfStock) {
+          return false;
+        }
+        if (_selectedStockStatus == 'Low Stock' && itemStockStatus != StockStatusEnum.lowStock) {
+          return false;
+        }
       }
       return true;
     }).toList();
@@ -214,151 +244,89 @@ class _InventoryScreenState extends State<InventoryScreen>
     if (picked == null || !mounted) return;
     _lastSearchImage = picked;
 
-    // Step 2: Show search settings with threshold slider + mode
-    double threshold = _searchThreshold;
-    String? mode;
-    final settingsResult = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) => _SearchSettingsSheet(initialThreshold: threshold),
-    );
-    if (settingsResult == null || !mounted) return;
-    mode = settingsResult['mode'] as String;
-    threshold = settingsResult['threshold'] as double;
-
-    Map<String, int>? cropCoords;
-    if (mode == 'draw') {
-      final cropRect = await Navigator.push<Rect>(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ImageCropScreen(imageFile: picked),
-          fullscreenDialog: true,
+    final searchResult = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => InteractiveImageSearchScreen(
+          imageFile: picked,
+          allItems: _items,
         ),
-      );
-      if (!mounted) return;
-      if (cropRect != null) {
-        cropCoords = {
-          'x1': cropRect.left.toInt(),
-          'y1': cropRect.top.toInt(),
-          'x2': cropRect.right.toInt(),
-          'y2': cropRect.bottom.toInt(),
-        };
-      }
-    }
+        fullscreenDialog: true,
+      ),
+    );
+    if (searchResult == null || !mounted) return;
+
+    final ids = (searchResult['productIds'] as List).cast<int>();
+    final scores = (searchResult['scores'] as List).cast<double>();
+    final detections = (searchResult['detections'] as List).cast<Map<String, dynamic>>();
+    final threshold = searchResult['threshold'] as double;
+    final selectedProductId = searchResult['selectedProductId'] as int?;
 
     setState(() {
       _isImageSearchActive = true;
-      _imageSearchProductIds.clear();
-      _searchDetections = [];
-      _productScores.clear();
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Row(
-          children: [
-            SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-            ),
-            SizedBox(width: 12),
-            Text('Searching by image...'),
-          ],
-        ),
-        duration: Duration(seconds: 30),
-      ),
-    );
-
-    final result = await InventoryService.searchProductsByImage(
-      picked,
-      cropRect: cropCoords,
-      scoreThreshold: threshold,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-
-    final ids = (result['productIds'] as List).cast<int>();
-    final scores = (result['scores'] as List?)?.cast<double>() ?? <double>[];
-    final detections = (result['detections'] as List).cast<Map<String, dynamic>>();
-
-    setState(() {
       _searchThreshold = threshold;
+      _imageSearchProductIds.clear();
       _imageSearchProductIds.addAll(ids);
+      _productScores.clear();
       for (int i = 0; i < ids.length && i < scores.length; i++) {
         _productScores[ids[i]] = scores[i];
       }
       _searchDetections = detections;
     });
 
-    if (ids.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No matching products found')),
-      );
+    if (selectedProductId != null) {
+      try {
+        final item = _items.firstWhere(
+          (i) => int.tryParse(i.id) == selectedProductId,
+        );
+        _showEditItemSheet(item);
+      } catch (e) {
+        print('Selected item not found in local inventory: $e');
+      }
     }
   }
 
   Future<void> _reSearch(XFile image) async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppTheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) => _SearchSettingsSheet(
-        initialThreshold: _searchThreshold,
-      ),
-    );
-    if (result == null || !mounted) return;
-    final threshold = result['threshold'] as double;
-
-    setState(() {
-      _imageSearchProductIds.clear();
-      _searchDetections = [];
-      _productScores.clear();
-      _searchThreshold = threshold;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Row(
-          children: [
-            SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-            ),
-            SizedBox(width: 12),
-            Text('Re-searching...'),
-          ],
+    final searchResult = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => InteractiveImageSearchScreen(
+          imageFile: image,
+          allItems: _items,
         ),
-        duration: Duration(seconds: 30),
+        fullscreenDialog: true,
       ),
     );
-
-    final searchResult = await InventoryService.searchProductsByImage(
-      image,
-      scoreThreshold: threshold,
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    if (searchResult == null || !mounted) return;
 
     final ids = (searchResult['productIds'] as List).cast<int>();
-    final scores = (searchResult['scores'] as List?)?.cast<double>() ?? <double>[];
+    final scores = (searchResult['scores'] as List).cast<double>();
     final detections = (searchResult['detections'] as List).cast<Map<String, dynamic>>();
+    final threshold = searchResult['threshold'] as double;
+    final selectedProductId = searchResult['selectedProductId'] as int?;
 
     setState(() {
+      _isImageSearchActive = true;
+      _searchThreshold = threshold;
+      _imageSearchProductIds.clear();
       _imageSearchProductIds.addAll(ids);
+      _productScores.clear();
       for (int i = 0; i < ids.length && i < scores.length; i++) {
         _productScores[ids[i]] = scores[i];
       }
       _searchDetections = detections;
     });
+
+    if (selectedProductId != null) {
+      try {
+        final item = _items.firstWhere(
+          (i) => int.tryParse(i.id) == selectedProductId,
+        );
+        _showEditItemSheet(item);
+      } catch (e) {
+        print('Selected item not found in local inventory: $e');
+      }
+    }
   }
 
   void _clearImageSearch() {
@@ -496,25 +464,28 @@ class _InventoryScreenState extends State<InventoryScreen>
       ),
       bottomNavigationBar: isTablet
           ? null
-          : ClipRect(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(220),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border(
-                        top: BorderSide(
-                          color: AppTheme.outlineVariant.withAlpha(100),
-                          width: 1,
+          : SizedBox(
+              height: 76,
+              child: ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(220),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border(
+                          top: BorderSide(
+                            color: AppTheme.outlineVariant.withAlpha(100),
+                            width: 1,
+                          ),
                         ),
                       ),
-                    ),
-                    child: AppNavigation(
-                      currentIndex: _selectedNavIndex,
-                      onDestinationSelected: _onNavTap,
+                      child: AppNavigation(
+                        currentIndex: _selectedNavIndex,
+                        onDestinationSelected: _onNavTap,
+                      ),
                     ),
                   ),
                 ),
@@ -630,10 +601,16 @@ class _InventoryScreenState extends State<InventoryScreen>
         InventoryStatsStripWidget(items: _items),
         InventorySearchFilterWidget(
           searchQuery: _searchQuery,
-          categories: _categories,
+          categories: _categoriesList,
           onSearchChanged: (q) => setState(() => _searchQuery = q),
           onAddItem: _showAddItemSheet,
           onImageSearch: _performImageSearch,
+          selectedCategory: _selectedCategory,
+          onCategoryChanged: (cat) => setState(() => _selectedCategory = cat),
+          selectedStatus: _selectedStatus,
+          onStatusChanged: (stat) => setState(() => _selectedStatus = stat),
+          selectedStockStatus: _selectedStockStatus,
+          onStockStatusChanged: (stk) => setState(() => _selectedStockStatus = stk),
         ),
         _buildImageSearchBanner(),
         Expanded(
@@ -643,6 +620,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                   items: _filteredItems,
                   onEdit: _showEditItemSheet,
                   onDelete: _deleteItem,
+                  productScores: _isImageSearchActive ? _productScores : null,
                 ),
         ),
       ],
@@ -671,10 +649,16 @@ class _InventoryScreenState extends State<InventoryScreen>
               InventoryStatsStripWidget(items: _items),
               InventorySearchFilterWidget(
                 searchQuery: _searchQuery,
-                categories: _categories,
+                categories: _categoriesList,
                 onSearchChanged: (q) => setState(() => _searchQuery = q),
                 onAddItem: _showAddItemSheet,
                 onImageSearch: _performImageSearch,
+                selectedCategory: _selectedCategory,
+                onCategoryChanged: (cat) => setState(() => _selectedCategory = cat),
+                selectedStatus: _selectedStatus,
+                onStatusChanged: (stat) => setState(() => _selectedStatus = stat),
+                selectedStockStatus: _selectedStockStatus,
+                onStockStatusChanged: (stk) => setState(() => _selectedStockStatus = stk),
               ),
               _buildImageSearchBanner(),
               Expanded(
@@ -683,6 +667,7 @@ class _InventoryScreenState extends State<InventoryScreen>
                   onEdit: _showEditItemSheet,
                   onDelete: _deleteItem,
                   isTablet: true,
+                  productScores: _isImageSearchActive ? _productScores : null,
                 ),
               ),
             ],
@@ -693,104 +678,3 @@ class _InventoryScreenState extends State<InventoryScreen>
   }
 }
 
-class _SearchSettingsSheet extends StatefulWidget {
-  final double initialThreshold;
-  const _SearchSettingsSheet({required this.initialThreshold});
-
-  @override
-  State<_SearchSettingsSheet> createState() => _SearchSettingsSheetState();
-}
-
-class _SearchSettingsSheetState extends State<_SearchSettingsSheet> {
-  late double _threshold;
-
-  @override
-  void initState() {
-    super.initState();
-    _threshold = widget.initialThreshold;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Search Settings',
-                style: GoogleFonts.ibmPlexSans(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Similarity Threshold',
-                          style: GoogleFonts.ibmPlexSans(fontSize: 13, fontWeight: FontWeight.w500),
-                        ),
-                        Text(
-                          _threshold.toStringAsFixed(2),
-                          style: GoogleFonts.ibmPlexMono(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Slider(
-                      value: _threshold,
-                      min: 0.0,
-                      max: 1.0,
-                      divisions: 20,
-                      activeColor: AppTheme.primary,
-                      label: _threshold.toStringAsFixed(2),
-                      onChanged: (v) => setState(() => _threshold = v),
-                    ),
-                    Text(
-                      _threshold < 0.3
-                          ? 'Lower = more results, less precise'
-                          : _threshold > 0.7
-                              ? 'Higher = fewer results, more precise'
-                              : 'Balanced accuracy',
-                      style: GoogleFonts.ibmPlexSans(
-                        fontSize: 11,
-                        color: AppTheme.outline,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              ListTile(
-                leading: const Icon(Icons.auto_fix_high_rounded, color: AppTheme.primary),
-                title: const Text('Auto Detect'),
-                subtitle: const Text('Let AI find objects automatically'),
-                onTap: () => Navigator.pop(context, {'mode': 'auto', 'threshold': _threshold}),
-              ),
-              ListTile(
-                leading: const Icon(Icons.draw_rounded, color: AppTheme.primary),
-                title: const Text('Draw Object'),
-                subtitle: const Text('Manually select the object area'),
-                onTap: () => Navigator.pop(context, {'mode': 'draw', 'threshold': _threshold}),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

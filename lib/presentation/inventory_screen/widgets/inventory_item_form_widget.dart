@@ -66,6 +66,8 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
   XFile? _selectedImage;
   Uint8List? _selectedImageBytes;
   final ImagePicker _imagePicker = ImagePicker();
+  
+  String _selectedStatus = 'Active';
 
   @override
   void initState() {
@@ -94,6 +96,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
       text: item?.unitPrice.toString() ?? '',
     );
     _supplierController = TextEditingController(text: item?.supplierName ?? '');
+    _selectedStatus = item?.productStatus ?? 'Active';
   }
 
   Future<void> _loadSuppliers() async {
@@ -473,6 +476,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         supplierName: _supplierController.text.trim(),
         imageUrl: imageUrl,
         semanticLabel: _nameController.text.trim(),
+        productStatus: _selectedStatus,
       );
 
       // Call API to update product
@@ -484,6 +488,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
           'unitCost': item.unitCost,
           'unitPrice': item.unitPrice,
           'supplierName': item.supplierName,
+          'status': item.productStatus,
         };
 
         print('=== FORM WIDGET UPDATE DEBUG ===');
@@ -554,6 +559,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
           'quantity': item.quantity,
           'reorderLevel': item.reorderLevel,
           'supplierName': item.supplierName,
+          'status': item.productStatus,
         };
 
         payload['subcategoryId'] = _selectedSubcategoryId;
@@ -700,6 +706,8 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
                     ),
                     const SizedBox(height: 12),
                     _buildCategoryField(),
+                    const SizedBox(height: 12),
+                    _buildStatusField(),
                     const SizedBox(height: 20),
                     _buildSectionLabel('Stock Levels'),
                     const SizedBox(height: 10),
@@ -1320,6 +1328,26 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildStatusField() {
+    return DropdownButtonFormField<String>(
+      value: _selectedStatus,
+      decoration: const InputDecoration(labelText: 'Status *'),
+      items: const [
+        DropdownMenuItem(value: 'Active', child: Text('Active')),
+        DropdownMenuItem(value: 'Inactive', child: Text('Inactive')),
+        DropdownMenuItem(value: 'Discount', child: Text('Discount')),
+      ],
+      onChanged: (v) {
+        if (v != null) {
+          setState(() {
+            _selectedStatus = v;
+          });
+        }
+      },
+      validator: (v) => v == null ? 'Status is required' : null,
     );
   }
 }
