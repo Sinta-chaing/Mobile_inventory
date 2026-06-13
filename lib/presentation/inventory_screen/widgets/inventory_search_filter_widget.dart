@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
+import '../../../../widgets/animated_scale_button.dart';
 
 class InventorySearchFilterWidget extends StatelessWidget {
   final String searchQuery;
@@ -56,7 +57,7 @@ class InventorySearchFilterWidget extends StatelessWidget {
         child: DropdownButton<String>(
           value: dropdownValue,
           isDense: true,
-          style: GoogleFonts.ibmPlexSans(
+          style: GoogleFonts.dmSans(
             fontSize: 13,
             color: const Color(0xFF1A1C1B),
             fontWeight: FontWeight.w500,
@@ -67,7 +68,7 @@ class InventorySearchFilterWidget extends StatelessWidget {
               value: val,
               child: Text(
                 '$label: $val',
-                style: GoogleFonts.ibmPlexSans(
+                style: GoogleFonts.dmSans(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: const Color(0xFF1A1C1B),
@@ -106,10 +107,10 @@ class InventorySearchFilterWidget extends StatelessWidget {
                   ),
                   child: TextField(
                     onChanged: onSearchChanged,
-                    style: GoogleFonts.ibmPlexSans(fontSize: 14),
+                    style: GoogleFonts.dmSans(fontSize: 14),
                     decoration: InputDecoration(
                       hintText: 'Search by name or SKU…',
-                      hintStyle: GoogleFonts.ibmPlexSans(
+                      hintStyle: GoogleFonts.dmSans(
                         fontSize: 13,
                         color: AppTheme.outline,
                       ),
@@ -140,26 +141,24 @@ class InventorySearchFilterWidget extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               // Image search button
-              Container(
-                height: 44,
-                width: 44,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.outlineVariant),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(13),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+              if (onImageSearch != null)
+                AnimatedScaleButton(
+                  onTap: onImageSearch!,
+                  child: Container(
+                    height: 44,
+                    width: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.outlineVariant),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(13),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: onImageSearch,
-                    borderRadius: BorderRadius.circular(12),
                     child: const Icon(
                       Icons.image_search_rounded,
                       color: AppTheme.primary,
@@ -167,27 +166,24 @@ class InventorySearchFilterWidget extends StatelessWidget {
                     ),
                   ),
                 ),
-              ),
               const SizedBox(width: 8),
               // Add item button
-              Container(
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppTheme.primary,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppTheme.primary.withAlpha(30),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+              if (onAddItem != null)
+                AnimatedScaleButton(
+                  onTap: onAddItem!,
+                  child: Container(
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.primary.withAlpha(30),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: onAddItem,
-                    borderRadius: BorderRadius.circular(12),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Row(
@@ -201,7 +197,7 @@ class InventorySearchFilterWidget extends StatelessWidget {
                           const SizedBox(width: 4),
                           Text(
                             'Add',
-                            style: GoogleFonts.ibmPlexSans(
+                            style: GoogleFonts.dmSans(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
                               color: Colors.white,
@@ -212,8 +208,7 @@ class InventorySearchFilterWidget extends StatelessWidget {
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
           ),
           const SizedBox(height: 12),
           // Horizontal scrollable filter row

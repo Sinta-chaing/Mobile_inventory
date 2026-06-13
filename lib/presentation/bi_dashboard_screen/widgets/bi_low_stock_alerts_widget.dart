@@ -1,21 +1,29 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/app_theme.dart';
 import '../../../widgets/custom_image_widget.dart';
+import '../../../widgets/animated_scale_button.dart';
+import '../../../services/inventory_service.dart';
+import '../../../services/supplier_data_service.dart';
+import '../../../models/all_models.dart';
 import '../../../presentation/inventory_screen/inventory_screen.dart';
 
 class BILowStockAlertsWidget extends StatefulWidget {
   final List<StockItem> inventory;
+  final Future<void> Function(String? successMessage)? onReorderComplete;
 
-  const BILowStockAlertsWidget({super.key, required this.inventory});
+  const BILowStockAlertsWidget({
+    super.key,
+    required this.inventory,
+    this.onReorderComplete,
+  });
 
   @override
   State<BILowStockAlertsWidget> createState() => _BILowStockAlertsWidgetState();
 }
 
 class _BILowStockAlertsWidgetState extends State<BILowStockAlertsWidget> {
-  // TODO: Replace with Riverpod/Bloc for production
-
   late List<_AlertItem> _alerts;
 
   List<_AlertItem> _calculateLowStockAlerts() {
@@ -26,14 +34,15 @@ class _BILowStockAlertsWidgetState extends State<BILowStockAlertsWidget> {
         lowStockItems.add(
           _AlertItem(
             id: item.id,
+            inventoryId: item.inventoryId,
             name: item.name,
             sku: item.sku,
             category: item.category,
             quantity: item.quantity,
             reorderLevel: item.reorderLevel,
-            reorderQty: (item.reorderLevel * 2)
-                .toInt(), // Suggest reordering 2x the reorder level
+            reorderQty: (item.reorderLevel * 2).toInt(), // Suggest reordering 2x the reorder level
             unitCost: item.unitCost,
+            unitPrice: item.unitPrice,
             supplierName: item.supplierName,
             status: item.quantity == 0 ? 'outOfStock' : 'lowStock',
             imageUrl: item.imageUrl,
@@ -53,6 +62,101 @@ class _BILowStockAlertsWidgetState extends State<BILowStockAlertsWidget> {
   void initState() {
     super.initState();
     _alerts = _calculateLowStockAlerts();
+  }
+
+  @override
+  void didUpdateWidget(BILowStockAlertsWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.inventory != oldWidget.inventory) {
+      setState(() {
+        _alerts = _calculateLowStockAlerts();
+      });
+    }
+  }
+
+  Future<void> _bulkReorder() async {
+    if (_alerts.isEmpty) return;
+
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final totalCost = _alerts.fold<double>(0, (sum, item) => sum + item.reorderCost);
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          'Bulk Reorder Items',
+          style: GoogleFonts.ibmPlexSans(fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'This will reorder all ${_alerts.length} low-stock items, increasing their stock levels by their suggested reorder quantities.\n\nEstimated Cost: \$${totalCost.toStringAsFixed(2)}\n\nDo you want to proceed?',
+          style: GoogleFonts.ibmPlexSans(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Proceed'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    // Show a loading dialog
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    int successCount = 0;
+    for (var alert in _alerts) {
+      final newQuantity = alert.quantity + alert.reorderQty;
+      final success = await InventoryService.updateProductQuantity(
+        alert.id,
+        alert.inventoryId,
+        newQuantity,
+      );
+      if (success) {
+        successCount++;
+      }
+    }
+
+    // Dismiss loading dialog
+    if (mounted) {
+      Navigator.pop(context);
+    }
+
+    if (mounted) {
+      if (successCount > 0) {
+        scaffoldMessenger.showSnackBar(
+          SnackBar(
+            content: Text('✅ Successfully reordered $successCount / ${_alerts.length} items!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        if (widget.onReorderComplete != null) {
+          await widget.onReorderComplete!(null);
+        }
+      } else {
+        scaffoldMessenger.showSnackBar(
+          const SnackBar(
+            content: Text('❌ Bulk reorder failed.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -100,7 +204,7 @@ class _BILowStockAlertsWidgetState extends State<BILowStockAlertsWidget> {
             ),
             const Spacer(),
             TextButton(
-              onPressed: () {},
+              onPressed: _alerts.isEmpty ? null : _bulkReorder,
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -114,7 +218,7 @@ class _BILowStockAlertsWidgetState extends State<BILowStockAlertsWidget> {
                 style: GoogleFonts.ibmPlexSans(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: AppTheme.primary,
+                  color: _alerts.isEmpty ? Colors.grey : AppTheme.primary,
                 ),
               ),
             ),
@@ -123,15 +227,14 @@ class _BILowStockAlertsWidgetState extends State<BILowStockAlertsWidget> {
         const SizedBox(height: 12),
         // Alert cards
         ...List.generate(_alerts.length, (i) {
+          final alert = _alerts[i];
           return _AnimatedAlertCard(
-            alert: _alerts[i],
+            alert: alert,
             index: i,
-            onReorder: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Reorder created for ${_alerts[i].name}'),
-                ),
-              );
+            onReorder: (successMessage) async {
+              if (widget.onReorderComplete != null) {
+                await widget.onReorderComplete!(successMessage);
+              }
             },
           );
         }),
@@ -142,6 +245,7 @@ class _BILowStockAlertsWidgetState extends State<BILowStockAlertsWidget> {
 
 class _AlertItem {
   final String id;
+  final String inventoryId;
   final String name;
   final String sku;
   final String category;
@@ -149,6 +253,7 @@ class _AlertItem {
   final int reorderLevel;
   final int reorderQty;
   final double unitCost;
+  final double unitPrice;
   final String supplierName;
   final String status;
   final String imageUrl;
@@ -156,6 +261,7 @@ class _AlertItem {
 
   _AlertItem({
     required this.id,
+    required this.inventoryId,
     required this.name,
     required this.sku,
     required this.category,
@@ -163,6 +269,7 @@ class _AlertItem {
     required this.reorderLevel,
     required this.reorderQty,
     required this.unitCost,
+    required this.unitPrice,
     required this.supplierName,
     required this.status,
     required this.imageUrl,
@@ -182,7 +289,7 @@ class _AlertItem {
 class _AnimatedAlertCard extends StatefulWidget {
   final _AlertItem alert;
   final int index;
-  final VoidCallback onReorder;
+  final Future<void> Function(String? successMessage) onReorder;
 
   const _AnimatedAlertCard({
     required this.alert,
@@ -226,6 +333,170 @@ class _AnimatedAlertCardState extends State<_AnimatedAlertCard>
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _showReorderDialog(BuildContext context, _AlertItem alert) async {
+    final qtyController = TextEditingController(text: alert.reorderQty.toString());
+    final priceController = TextEditingController(text: alert.unitPrice.toStringAsFixed(2));
+    final formKey = GlobalKey<FormState>();
+
+    // Load suppliers
+    final suppliers = await SupplierDataService.loadSuppliers();
+    Source? selectedSupplier;
+    if (suppliers.isNotEmpty) {
+      selectedSupplier = suppliers.firstWhere(
+        (s) => s.name.toLowerCase() == alert.supplierName.toLowerCase(),
+        orElse: () => suppliers.first,
+      );
+    }
+
+    await showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (dialogCtx, dialogSetState) {
+            return AlertDialog(
+              title: Text(
+                'Reorder ${alert.name}',
+                style: GoogleFonts.ibmPlexSans(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              content: Form(
+                key: formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Current Stock: ${alert.quantity} / ${alert.reorderLevel} reorder pt.',
+                        style: GoogleFonts.ibmPlexSans(fontSize: 12, color: AppTheme.outline),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: qtyController,
+                        decoration: const InputDecoration(
+                          labelText: 'Reorder Quantity',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        validator: (val) {
+                          if (val == null || val.isEmpty) return 'Please enter quantity';
+                          final parsed = int.tryParse(val);
+                          if (parsed == null || parsed <= 0) return 'Must be a positive number';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      // Supplier Dropdown
+                      DropdownButtonFormField<int>(
+                        value: selectedSupplier?.sourceId,
+                        decoration: const InputDecoration(
+                          labelText: 'Supplier',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: suppliers.map((supplier) {
+                          return DropdownMenuItem<int>(
+                            value: supplier.sourceId,
+                            child: Text(supplier.name),
+                          );
+                        }).toList(),
+                        onChanged: (newSourceId) {
+                          dialogSetState(() {
+                            selectedSupplier = suppliers.firstWhere((s) => s.sourceId == newSourceId);
+                          });
+                        },
+                        validator: (val) {
+                          if (val == null) return 'Please select a supplier';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: priceController,
+                        decoration: const InputDecoration(
+                          labelText: 'New Sale Price (\$)',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        validator: (val) {
+                          if (val == null || val.isEmpty) return 'Please enter sale price';
+                          final parsed = double.tryParse(val);
+                          if (parsed == null || parsed <= 0) return 'Must be a positive price';
+                          return null;
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel'),
+                ),
+                AnimatedScaleButton(
+                  onTap: () async {
+                    if (formKey.currentState!.validate() && selectedSupplier != null) {
+                      final enteredQty = int.parse(qtyController.text);
+                      final enteredPrice = double.parse(priceController.text);
+
+                      final newQuantity = alert.quantity + enteredQty;
+
+                      // 1. Update product quantity
+                      final qtySuccess = await InventoryService.updateProductQuantity(
+                        alert.id,
+                        alert.inventoryId,
+                        newQuantity,
+                      );
+
+                      // 2. Update product sale price and supplier (source)
+                      final priceSuccess = await InventoryService.updateProduct(
+                        alert.id,
+                        {
+                          'unitPrice': enteredPrice,
+                          'sourceId': selectedSupplier!.sourceId,
+                          'supplierName': selectedSupplier!.name,
+                        },
+                      );
+
+                      if (qtySuccess && priceSuccess) {
+                        Navigator.pop(dialogCtx);
+                        if (widget.onReorder != null) {
+                          widget.onReorder(
+                            '✅ Reordered $enteredQty units from ${selectedSupplier!.name} and updated sale price to \$${enteredPrice.toStringAsFixed(2)}',
+                          );
+                        }
+                      } else {
+                        ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                          const SnackBar(
+                            content: Text('❌ Reorder failed.'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.secondary,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Confirm',
+                      style: GoogleFonts.ibmPlexSans(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -396,26 +667,24 @@ class _AnimatedAlertCardState extends State<_AnimatedAlertCard>
                               ),
                             ],
                           ),
-                          SizedBox(
-                            height: 30,
-                            child: ElevatedButton(
-                              onPressed: widget.onReorder,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.secondary,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                elevation: 0,
+                          AnimatedScaleButton(
+                            onTap: () => _showReorderDialog(context, alert),
+                            child: Container(
+                              height: 30,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
                               ),
+                              decoration: BoxDecoration(
+                                color: AppTheme.secondary,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              alignment: Alignment.center,
                               child: Text(
                                 'Reorder',
                                 style: GoogleFonts.ibmPlexSans(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
+                                  color: Colors.white,
                                 ),
                               ),
                             ),

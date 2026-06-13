@@ -12,6 +12,7 @@ import '../../utils/invoice_pdf_generator.dart';
 import '../../utils/khqr_code_helper.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
+import '../../widgets/animated_scale_button.dart';
 import 'package:khqr_widget/khqr_widget.dart';
 import '../inventory_screen/inventory_screen.dart';
 import '../../models/all_models.dart' as backend;
@@ -35,6 +36,18 @@ class Customer {
       phone: customer.phone,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Customer &&
+          runtimeType == other.runtimeType &&
+          customerId == other.customerId &&
+          name == other.name &&
+          phone == other.phone;
+
+  @override
+  int get hashCode => customerId.hashCode ^ name.hashCode ^ phone.hashCode;
 }
 
 class Product {
@@ -397,7 +410,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   }
 
   List<Order> get _filteredOrders {
-    return _orders.where((o) {
+    final filtered = _orders.where((o) {
       final customerNameStr = o.customerName ?? '';
       final invoiceIdStr = o.invoiceId?.toString() ?? '';
       final matchSearch =
@@ -425,6 +438,9 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
 
       return matchSearch && matchStatus;
     }).toList();
+    
+    filtered.sort((a, b) => b.createdDate.compareTo(a.createdDate));
+    return filtered;
   }
 
   void _onNavTap(int index) {
@@ -1049,6 +1065,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                 children: [
                   Expanded(
                     child: AnimatedScaleButton(
+                      loadingColor: Colors.green,
                       onTap: () async {
                         final success = await OrderService.markOrderAsPaid(
                           order.invoiceId,
@@ -1077,6 +1094,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                         }
                       },
                       child: Container(
+                        width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         decoration: BoxDecoration(
                           border: Border.all(color: Colors.green, width: 1.5),
@@ -1097,6 +1115,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: AnimatedScaleButton(
+                      loadingColor: Colors.red,
                       onTap: () async {
                         final success = await OrderService.updateOrderStatus(
                           order.invoiceId,
@@ -1124,6 +1143,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                         }
                       },
                       child: Container(
+                        width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         decoration: BoxDecoration(
                           border: Border.all(color: Colors.red, width: 1.5),
@@ -2135,8 +2155,8 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
 
 class _OrderDetailSheet extends StatefulWidget {
   final Order order;
-  final VoidCallback onMarkPaid;
-  final VoidCallback onCancel;
+  final Future<void> Function() onMarkPaid;
+  final Future<void> Function() onCancel;
   final Future<void> Function() onDelete;
 
   const _OrderDetailSheet({
@@ -2156,8 +2176,8 @@ class _OrderDetailSheetState extends State<_OrderDetailSheet> {
   String? _khqrCode;
 
   Order get order => widget.order;
-  VoidCallback get onMarkPaid => widget.onMarkPaid;
-  VoidCallback get onCancel => widget.onCancel;
+  Future<void> Function() get onMarkPaid => widget.onMarkPaid;
+  Future<void> Function() get onCancel => widget.onCancel;
   Future<void> Function() get onDelete => widget.onDelete;
 
   bool get _showKhqrSection =>
@@ -2760,58 +2780,3 @@ class _OrderDetailSheetState extends State<_OrderDetailSheet> {
   }
 }
 
-class AnimatedScaleButton extends StatefulWidget {
-  final Widget child;
-  final VoidCallback onTap;
-
-  const AnimatedScaleButton({
-    super.key,
-    required this.child,
-    required this.onTap,
-  });
-
-  @override
-  State<AnimatedScaleButton> createState() => _AnimatedScaleButtonState();
-}
-
-class _AnimatedScaleButtonState extends State<AnimatedScaleButton>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 80),
-      lowerBound: 0.92,
-      upperBound: 1.0,
-      value: 1.0,
-    );
-    _scaleAnimation = _controller;
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => _controller.animateTo(0.92, curve: Curves.easeInOut),
-      onTapUp: (_) {
-        _controller.animateTo(1.0, curve: Curves.easeInOut);
-        widget.onTap();
-      },
-      onTapCancel: () => _controller.animateTo(1.0, curve: Curves.easeInOut),
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: widget.child,
-      ),
-    );
-  }
-}

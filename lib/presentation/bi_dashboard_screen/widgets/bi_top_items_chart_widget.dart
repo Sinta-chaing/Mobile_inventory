@@ -202,8 +202,13 @@ class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
                           interval: _yInterval,
                           getTitlesWidget: (value, meta) {
                             if (value == 0) return const SizedBox.shrink();
+                            final formatted = value >= 1000
+                                ? (value % 1000 == 0
+                                    ? '\$${(value / 1000).toStringAsFixed(0)}k'
+                                    : '\$${(value / 1000).toStringAsFixed(1)}k')
+                                : '\$${value.toStringAsFixed(0)}';
                             return Text(
-                              '\$${(value / 1000).toStringAsFixed(0)}k',
+                              formatted,
                               style: GoogleFonts.ibmPlexMono(
                                 fontSize: 10,
                                 color: AppTheme.outline,

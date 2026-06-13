@@ -7,6 +7,8 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
 import '../../services/customer_data_service.dart';
+import '../../services/order_service.dart';
+import '../../widgets/animated_scale_button.dart';
 import '../../models/all_models.dart' as backend;
 
 // UI-specific Customer model with extra fields for display
@@ -90,6 +92,38 @@ class _CustomerScreenState extends State<CustomerScreen> {
     _loadCustomers();
   }
 
+  void _updateCustomerStats(List<backend.Invoice> invoices) {
+    for (var customer in _customers) {
+      final customerInvoices = invoices.where((inv) {
+        if (inv.status.toLowerCase() == 'cancelled' || inv.status.toLowerCase() == 'canceled') {
+          return false;
+        }
+        if (inv.customerId == customer.customerId) {
+          return true;
+        }
+        if (customer.phone.isNotEmpty && inv.customerPhone == customer.phone) {
+          return true;
+        }
+        if (customer.name.isNotEmpty && inv.customerName.toLowerCase() == customer.name.toLowerCase()) {
+          return true;
+        }
+        return false;
+      }).toList();
+
+      customer.orderCount = customerInvoices.length;
+      customer.totalPurchases = customerInvoices.fold<double>(
+        0.0,
+        (sum, inv) => sum + inv.grandTotal,
+      );
+      if (customerInvoices.isNotEmpty) {
+        final earliest = customerInvoices
+            .map((inv) => inv.createdAt)
+            .reduce((a, b) => a.isBefore(b) ? a : b);
+        customer.firstPurchaseDate = earliest;
+      }
+    }
+  }
+
   Future<void> _loadCustomers() async {
     // 1. Load from cache immediately
     try {
@@ -97,9 +131,18 @@ class _CustomerScreenState extends State<CustomerScreen> {
       final customers = cachedCustomers
           .map((c) => Customer.fromBackend(c))
           .toList();
+      
+      List<backend.Invoice> cachedInvoices = [];
+      try {
+        cachedInvoices = await OrderService.loadOrders();
+      } catch (e) {
+        print('Error loading cached orders: $e');
+      }
+
       if (mounted) {
         setState(() {
           _customers = customers;
+          _updateCustomerStats(cachedInvoices);
           _isLoading = false;
         });
       }
@@ -113,9 +156,21 @@ class _CustomerScreenState extends State<CustomerScreen> {
       final customers = backendCustomers
           .map((c) => Customer.fromBackend(c))
           .toList();
+      
+      List<backend.Invoice> freshInvoices = [];
+      try {
+        freshInvoices = await OrderService.fetchOrders();
+      } catch (e) {
+        print('Error fetching fresh orders: $e');
+        try {
+          freshInvoices = await OrderService.loadOrders();
+        } catch (_) {}
+      }
+
       if (mounted) {
         setState(() {
           _customers = customers;
+          _updateCustomerStats(freshInvoices);
           _isLoading = false;
         });
       }
@@ -602,29 +657,34 @@ class _CustomerScreenState extends State<CustomerScreen> {
   }
 
   Widget _buildFAB() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.primary,
-        borderRadius: BorderRadius.circular(16.0),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.primary.withAlpha(80),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: FloatingActionButton.extended(
-        onPressed: _showAddCustomerDialog,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        icon: const Icon(Icons.person_add_rounded, color: Colors.white),
-        label: Text(
-          'Add Customer',
-          style: GoogleFonts.dmSans(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-          ),
+    return AnimatedScaleButton(
+      onTap: _showAddCustomerDialog,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppTheme.primary,
+          borderRadius: BorderRadius.circular(16.0),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.primary.withAlpha(80),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.person_add_rounded, color: Colors.white),
+            const SizedBox(width: 8),
+            Text(
+              'Add Customer',
+              style: GoogleFonts.dmSans(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -818,19 +878,27 @@ class _CustomerDetailSheet extends StatelessWidget {
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.edit_outlined,
-                        color: AppTheme.primary,
+                    AnimatedScaleButton(
+                      scaleFactor: 0.9,
+                      onTap: () => _showEditDialog(context),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: Icon(
+                          Icons.edit_outlined,
+                          color: AppTheme.primary,
+                        ),
                       ),
-                      onPressed: () => _showEditDialog(context),
                     ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: AppTheme.error,
+                    AnimatedScaleButton(
+                      scaleFactor: 0.9,
+                      onTap: onDelete,
+                      child: const Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: Icon(
+                          Icons.delete_outline_rounded,
+                          color: AppTheme.error,
+                        ),
                       ),
-                      onPressed: onDelete,
                     ),
                   ],
                 ),

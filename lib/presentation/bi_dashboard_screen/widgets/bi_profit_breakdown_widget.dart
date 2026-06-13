@@ -37,8 +37,12 @@ class _BIProfitBreakdownWidgetState extends State<BIProfitBreakdownWidget> {
   void _generateProfitItems() {
     final items = <_ProfitItem>[];
 
+    // Sort orders by createdDate descending so latest transactions are processed first
+    final sortedOrders = List<Order>.from(widget.orders)
+      ..sort((a, b) => b.createdDate.compareTo(a.createdDate));
+
     // Generate profit items from paid orders only
-    for (final order in widget.orders) {
+    for (final order in sortedOrders) {
       for (final item in order.items) {
         // Find cost price from inventory
         final stockItem = widget.stockItems.firstWhere(

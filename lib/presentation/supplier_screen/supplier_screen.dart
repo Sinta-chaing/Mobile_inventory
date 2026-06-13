@@ -7,6 +7,11 @@ import '../../theme/app_theme.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/profile_menu_widget.dart';
 import '../../services/supplier_data_service.dart';
+import '../../services/order_service.dart';
+import '../../services/inventory_service.dart';
+import '../purchase_screen/purchase_screen.dart';
+import '../inventory_screen/inventory_screen.dart';
+import '../../widgets/animated_scale_button.dart';
 import '../../models/all_models.dart' as backend;
 
 // UI-specific Supplier model
@@ -93,32 +98,32 @@ class _SupplierScreenState extends State<SupplierScreen> {
   Future<void> _loadSuppliers() async {
     // 1. Load from cache immediately
     try {
-      final cachedSuppliers = await SupplierDataService.loadSuppliers();
-      final suppliers = cachedSuppliers
-          .map((s) => Supplier.fromBackend(s))
-          .toList();
-      if (mounted) {
-        setState(() {
-          _suppliers = suppliers;
-          _isLoading = false;
-        });
-      }
+      final cachedResults = await Future.wait([
+        SupplierDataService.loadSuppliers(),
+        OrderService.loadOrders(),
+        InventoryService.loadInventory(),
+      ]);
+      final cachedSuppliers = cachedResults[0] as List<backend.Source>;
+      final cachedOrders = cachedResults[1] as List<backend.Invoice>;
+      final cachedInventory = cachedResults[2] as List<StockItem>;
+
+      _updateSuppliersList(cachedSuppliers, cachedOrders, cachedInventory);
     } catch (e) {
       print('Error loading cached suppliers: $e');
     }
 
     // 2. Fetch fresh suppliers from API in the background
     try {
-      final backendSuppliers = await SupplierDataService.fetchSuppliers();
-      final suppliers = backendSuppliers
-          .map((s) => Supplier.fromBackend(s))
-          .toList();
-      if (mounted) {
-        setState(() {
-          _suppliers = suppliers;
-          _isLoading = false;
-        });
-      }
+      final freshResults = await Future.wait([
+        SupplierDataService.fetchSuppliers(),
+        OrderService.fetchOrders(),
+        InventoryService.fetchProducts(),
+      ]);
+      final backendSuppliers = freshResults[0] as List<backend.Source>;
+      final freshOrders = freshResults[1] as List<backend.Invoice>;
+      final freshInventory = freshResults[2] as List<StockItem>;
+
+      _updateSuppliersList(backendSuppliers, freshOrders, freshInventory);
     } catch (e) {
       print('Error loading fresh suppliers: $e');
       if (mounted) {
@@ -126,7 +131,7 @@ class _SupplierScreenState extends State<SupplierScreen> {
           _isLoading = false;
         });
       }
-      if (mounted) {
+      if (_suppliers.isEmpty && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('✗ Failed to load suppliers from API.'),
@@ -135,6 +140,53 @@ class _SupplierScreenState extends State<SupplierScreen> {
           ),
         );
       }
+    }
+  }
+
+  void _updateSuppliersList(
+    List<backend.Source> sources,
+    List<backend.Invoice> backendOrders,
+    List<StockItem> inventoryItems,
+  ) {
+    final orders = backendOrders.map((inv) => Order.fromBackend(inv)).toList();
+    
+    // Compute supplier metrics from order data
+    final supplierOrderTotals = <String, double>{};
+    final supplierOrderCounts = <String, int>{};
+    
+    for (final order in orders) {
+      for (final item in order.items) {
+        final supplierName = inventoryItems
+            .where((s) => s.name.toLowerCase() == item.itemName.toLowerCase())
+            .map((s) => s.supplierName)
+            .firstOrNull;
+        if (supplierName != null && supplierName.isNotEmpty) {
+          supplierOrderTotals.update(
+            supplierName,
+            (v) => v + item.lineTotal,
+            ifAbsent: () => item.lineTotal,
+          );
+          supplierOrderCounts.update(
+            supplierName,
+            (v) => v + 1,
+            ifAbsent: () => 1,
+          );
+        }
+      }
+    }
+
+    final suppliers = sources.map((src) {
+      final s = Supplier.fromBackend(src);
+      s.totalOrders = supplierOrderTotals[s.name] ?? 0.0;
+      s.orderCount = supplierOrderCounts[s.name] ?? 0;
+      return s;
+    }).toList();
+
+    if (mounted) {
+      setState(() {
+        _suppliers = suppliers;
+        _isLoading = false;
+      });
     }
   }
 
@@ -602,50 +654,127 @@ class _SupplierScreenState extends State<SupplierScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => _SupplierDetailSheet(
         supplier: supplier,
-        onEdit: (updated) {
-          setState(() {
-            final idx = _suppliers.indexWhere(
-              (s) => s.sourceId == updated.sourceId,
-            );
-            if (idx >= 0) _suppliers[idx] = updated;
-          });
-          Navigator.pop(context);
-        },
-        onDelete: () {
-          setState(
-            () =>
-                _suppliers.removeWhere((s) => s.sourceId == supplier.sourceId),
+        onEdit: (updated) async {
+          final success = await SupplierDataService.updateSupplier(
+            updated.sourceId,
+            {
+              'name': updated.name,
+              'contactPerson': updated.contactPerson,
+              'email': updated.email,
+              'phone': updated.phone,
+              'address': updated.address,
+              'district': updated.district,
+            },
           );
-          Navigator.pop(context);
+          
+          if (success) {
+            setState(() {
+              final idx = _suppliers.indexWhere(
+                (s) => s.sourceId == updated.sourceId,
+              );
+              if (idx >= 0) _suppliers[idx] = updated;
+            });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Supplier updated successfully'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } else {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('❌ Failed to update supplier'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
+        },
+        onDelete: () async {
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (dctx) => AlertDialog(
+              title: const Text('Delete Supplier'),
+              content: Text('Are you sure you want to delete ${supplier.name}?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dctx, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dctx, true),
+                  style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
+                  child: const Text('Delete'),
+                ),
+              ],
+            ),
+          );
+
+          if (confirm != true) return;
+
+          final success = await SupplierDataService.deleteSupplier(supplier.sourceId);
+          if (success) {
+            setState(() {
+              _suppliers.removeWhere((s) => s.sourceId == supplier.sourceId);
+            });
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Supplier deleted successfully'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+            if (mounted) {
+              Navigator.pop(context); // Close detail sheet on successful delete
+            }
+          } else {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('❌ Failed to delete supplier'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+          }
         },
       ),
     );
   }
 
   Widget _buildFAB() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.primary,
-        borderRadius: BorderRadius.circular(16.0),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.primary.withAlpha(80),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: FloatingActionButton.extended(
-        onPressed: _showAddSupplierDialog,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        icon: const Icon(Icons.add_business_rounded, color: Colors.white),
-        label: Text(
-          'Add Supplier',
-          style: GoogleFonts.dmSans(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-          ),
+    return AnimatedScaleButton(
+      onTap: _showAddSupplierDialog,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppTheme.primary,
+          borderRadius: BorderRadius.circular(16.0),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.primary.withAlpha(80),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.add_business_rounded, color: Colors.white),
+            const SizedBox(width: 8),
+            Text(
+              'Add Supplier',
+              style: GoogleFonts.dmSans(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -871,19 +1000,27 @@ class _SupplierDetailSheet extends StatelessWidget {
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.edit_outlined,
-                        color: AppTheme.primary,
+                    AnimatedScaleButton(
+                      scaleFactor: 0.9,
+                      onTap: () => _showEditDialog(context),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: Icon(
+                          Icons.edit_outlined,
+                          color: AppTheme.primary,
+                        ),
                       ),
-                      onPressed: () => _showEditDialog(context),
                     ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: AppTheme.error,
+                    AnimatedScaleButton(
+                      scaleFactor: 0.9,
+                      onTap: onDelete,
+                      child: const Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: Icon(
+                          Icons.delete_outline_rounded,
+                          color: AppTheme.error,
+                        ),
                       ),
-                      onPressed: onDelete,
                     ),
                   ],
                 ),
@@ -1039,8 +1176,10 @@ class _SupplierDetailSheet extends StatelessWidget {
     final contactCtrl = TextEditingController(text: supplier.contactPerson);
     final emailCtrl = TextEditingController(text: supplier.email);
     final phoneCtrl = TextEditingController(text: supplier.phone);
+    final addressCtrl = TextEditingController(text: supplier.address);
+    final districtCtrl = TextEditingController(text: supplier.district);
     final notesCtrl = TextEditingController(text: supplier.notes);
-
+ 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1073,6 +1212,16 @@ class _SupplierDetailSheet extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               TextField(
+                controller: addressCtrl,
+                decoration: const InputDecoration(labelText: 'Address'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: districtCtrl,
+                decoration: const InputDecoration(labelText: 'District'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
                 controller: notesCtrl,
                 decoration: const InputDecoration(labelText: 'Notes'),
                 maxLines: 2,
@@ -1087,12 +1236,22 @@ class _SupplierDetailSheet extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () {
-              supplier.name = nameCtrl.text;
-              supplier.contactPerson = contactCtrl.text;
-              supplier.email = emailCtrl.text;
-              supplier.phone = phoneCtrl.text;
-              supplier.notes = notesCtrl.text;
-              onEdit(supplier);
+              final updated = Supplier(
+                sourceId: supplier.sourceId,
+                name: nameCtrl.text.trim(),
+                contactPerson: contactCtrl.text.trim(),
+                email: emailCtrl.text.trim(),
+                phone: phoneCtrl.text.trim(),
+                address: addressCtrl.text.trim(),
+                district: districtCtrl.text.trim(),
+                sourceUrl: supplier.sourceUrl,
+                totalOrders: supplier.totalOrders,
+                orderCount: supplier.orderCount,
+                rating: supplier.rating,
+                leadTimeDays: supplier.leadTimeDays,
+                notes: notesCtrl.text.trim(),
+              );
+              onEdit(updated);
               Navigator.pop(ctx);
             },
             child: const Text('Save'),

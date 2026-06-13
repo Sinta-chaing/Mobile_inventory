@@ -380,7 +380,20 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: BILowStockAlertsWidget(inventory: _stockItems),
+            child: BILowStockAlertsWidget(
+              inventory: _stockItems,
+              onReorderComplete: (successMessage) async {
+                if (successMessage != null && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(successMessage),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+                await _loadData();
+              },
+            ),
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 100)),
@@ -487,7 +500,20 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
                       ),
                       const SizedBox(width: 16),
                       Expanded(
-                        child: BILowStockAlertsWidget(inventory: _stockItems),
+                        child: BILowStockAlertsWidget(
+                          inventory: _stockItems,
+                          onReorderComplete: (successMessage) async {
+                            if (successMessage != null && mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(successMessage),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+                            }
+                            await _loadData();
+                          },
+                        ),
                       ),
                     ],
                   ),
