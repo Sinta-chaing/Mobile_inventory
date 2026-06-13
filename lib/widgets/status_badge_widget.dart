@@ -114,8 +114,8 @@ class StatusBadgeWidget extends StatelessWidget {
       case 'inactive':
         return const StatusBadgeWidget(
           label: 'Inactive',
-          backgroundColor: Color(0xFFE5E7EB),
-          textColor: Color(0xFF374151),
+          backgroundColor: Color.fromARGB(255, 226, 33, 8),
+          textColor: Color.fromARGB(255, 250, 250, 250),
         );
       case 'discount':
         return const StatusBadgeWidget(

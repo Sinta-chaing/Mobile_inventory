@@ -163,27 +163,31 @@ class _BIRevenueChartWidgetState extends State<BIRevenueChartWidget>
         children: [
           Row(
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '7-Day Revenue Trend',
-                    style: GoogleFonts.ibmPlexSans(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1A1C1B),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '7-Day Revenue Trend',
+                      style: GoogleFonts.ibmPlexSans(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1A1C1B),
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  Text(
-                    '${_points.first.day} - ${_points.last.day}, ${DateTime.now().year}',
-                    style: GoogleFonts.ibmPlexSans(
-                      fontSize: 11,
-                      color: AppTheme.outline,
+                    Text(
+                      '${_points.first.day} - ${_points.last.day}, ${DateTime.now().year}',
+                      style: GoogleFonts.ibmPlexSans(
+                        fontSize: 11,
+                        color: AppTheme.outline,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               _LegendDot(color: primary, label: 'Revenue'),
               const SizedBox(width: 12),
               _LegendDot(color: secondary, label: 'COGS'),

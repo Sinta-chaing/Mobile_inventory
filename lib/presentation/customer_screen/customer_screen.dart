@@ -91,22 +91,41 @@ class _CustomerScreenState extends State<CustomerScreen> {
   }
 
   Future<void> _loadCustomers() async {
+    // 1. Load from cache immediately
+    try {
+      final cachedCustomers = await CustomerDataService.loadCustomers();
+      final customers = cachedCustomers
+          .map((c) => Customer.fromBackend(c))
+          .toList();
+      if (mounted) {
+        setState(() {
+          _customers = customers;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading cached customers: $e');
+    }
+
+    // 2. Fetch fresh customers from API in the background
     try {
       final backendCustomers = await CustomerDataService.fetchCustomers();
       final customers = backendCustomers
           .map((c) => Customer.fromBackend(c))
           .toList();
-      if (!mounted) return;
-      setState(() {
-        _customers = customers;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _customers = customers;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      print('Error loading customers: $e');
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-      });
+      print('Error loading fresh customers: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

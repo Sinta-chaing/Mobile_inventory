@@ -19,6 +19,7 @@ class InventoryService {
     XFile imageFile, {
     Map<String, int>? cropRect,
     double scoreThreshold = 0.3,
+    int topK = 10,
   }) async {
     try {
       final extraFields = <String, dynamic>{};
@@ -26,6 +27,7 @@ class InventoryService {
         extraFields['crop'] = json.encode(cropRect);
       }
       extraFields['score_threshold'] = scoreThreshold.toStringAsFixed(2);
+      extraFields['top_k'] = topK.toString();
       final response = await _apiService.uploadFile(
         '/api/search-products/',
         imageFile,
@@ -88,7 +90,8 @@ class InventoryService {
     final rawImage = (map['productImage'] ?? map['image'] ?? productDetail?['image'] ?? '').toString();
     final name = map['productName'] ?? productDetail?['productName'] ?? 'Unknown Product';
     final sku = map['productSku'] ?? productDetail?['skuCode'] ?? '';
-    final category = map['categoryName'] ?? productDetail?['subcategoryName'] ?? 'Uncategorized';
+    final category = map['categoryName'] ?? productDetail?['categoryName'] ?? 'Uncategorized';
+    final subCategory = map['subcategoryName'] ?? productDetail?['subcategoryName'] ?? 'Uncategorized';
     
     final unitCost = _parseDouble(map['costPrice'] ?? productDetail?['costPrice'] ?? 0);
     final unitPrice = _parseDouble(map['salePrice'] ?? productDetail?['salePrice'] ?? 0);
@@ -101,6 +104,7 @@ class InventoryService {
       name: name,
       sku: sku,
       category: category,
+      subCategory: subCategory,
       quantity: map['quantity'] ?? 0,
       reorderLevel: map['reorderLevel'] ?? 10,
       unitCost: unitCost,
@@ -209,6 +213,7 @@ class InventoryService {
         name: items[index].name,
         sku: items[index].sku,
         category: items[index].category,
+        subCategory: items[index].subCategory,
         quantity: newQuantity,
         reorderLevel: items[index].reorderLevel,
         unitCost: items[index].unitCost,
@@ -286,6 +291,7 @@ class InventoryService {
               name: item.name,
               sku: item.sku,
               category: item.category,
+              subCategory: item.subCategory,
               quantity: item.quantity,
               reorderLevel: item.reorderLevel,
               unitCost: item.unitCost,
@@ -302,6 +308,7 @@ class InventoryService {
             name: item.name,
             sku: item.sku,
             category: item.category,
+            subCategory: item.subCategory,
             quantity: item.quantity,
             reorderLevel: item.reorderLevel,
             unitCost: item.unitCost,
@@ -337,6 +344,7 @@ class InventoryService {
         name: productData['name'] ?? productData['productName'] ?? '',
         sku: productData['sku'] ?? productData['skuCode'] ?? '',
         category: productData['category'] ?? 'Uncategorized',
+        subCategory: productData['subcategoryName'] ?? productData['subcategoryLabel'] ?? 'Uncategorized',
         quantity: productData['quantity'] ?? 0,
         reorderLevel: productData['reorderLevel'] ?? 10,
         unitCost: _parseDouble(
@@ -443,6 +451,7 @@ class InventoryService {
         name: productData['name'] ?? items[index].name,
         sku: productData['sku'] ?? items[index].sku,
         category: productData['category'] ?? items[index].category,
+        subCategory: productData['subcategoryName'] ?? productData['subcategoryLabel'] ?? items[index].subCategory,
         quantity: items[index].quantity,
         reorderLevel: productData['reorderLevel'] ?? items[index].reorderLevel,
         unitCost: _parseDouble(
@@ -530,6 +539,7 @@ class InventoryService {
             name: items[i].name,
             sku: items[i].sku,
             category: cat,
+            subCategory: items[i].subCategory,
             quantity: items[i].quantity,
             reorderLevel: items[i].reorderLevel,
             unitCost: items[i].unitCost,

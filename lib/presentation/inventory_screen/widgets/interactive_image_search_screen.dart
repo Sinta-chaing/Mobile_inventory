@@ -10,11 +10,15 @@ import './inventory_item_card_widget.dart';
 class InteractiveImageSearchScreen extends StatefulWidget {
   final XFile imageFile;
   final List<StockItem> allItems;
+  final double? initialThreshold;
+  final int? initialTopK;
 
   const InteractiveImageSearchScreen({
     super.key,
     required this.imageFile,
     required this.allItems,
+    this.initialThreshold = 0.3,
+    this.initialTopK = 10,
   });
 
   @override
@@ -33,6 +37,7 @@ class _InteractiveImageSearchScreenState extends State<InteractiveImageSearchScr
   
   String _detectionMode = 'auto'; // 'auto' (YOLO boxes) or 'manual' (draw rect)
   double _scoreThreshold = 0.3;
+  int _topK = 10;
   
   List<Map<String, dynamic>> _detections = [];
   List<int> _imageSearchProductIds = [];
@@ -49,6 +54,8 @@ class _InteractiveImageSearchScreenState extends State<InteractiveImageSearchScr
   @override
   void initState() {
     super.initState();
+    _scoreThreshold = widget.initialThreshold ?? 0.3;
+    _topK = widget.initialTopK ?? 10;
     _initFlow();
   }
 
@@ -96,6 +103,7 @@ class _InteractiveImageSearchScreenState extends State<InteractiveImageSearchScr
       widget.imageFile,
       cropRect: cropCoords,
       scoreThreshold: _scoreThreshold,
+      topK: _topK,
     );
 
     if (!mounted) return;
@@ -197,6 +205,7 @@ class _InteractiveImageSearchScreenState extends State<InteractiveImageSearchScr
       'scores': _imageSearchProductIds.map((id) => _productScores[id] ?? 0.0).toList(),
       'detections': _detections,
       'threshold': _scoreThreshold,
+      'topK': _topK,
     });
   }
 
@@ -215,7 +224,7 @@ class _InteractiveImageSearchScreenState extends State<InteractiveImageSearchScr
         foregroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.pop(context, null),
+          onPressed: _confirmSelectionAndClose,
         ),
         title: Text(
           'Interactive Search',
@@ -227,11 +236,11 @@ class _InteractiveImageSearchScreenState extends State<InteractiveImageSearchScr
         ),
         actions: [
           TextButton(
-            onPressed: _confirmSelectionAndClose,
+            onPressed: () => Navigator.pop(context, {'clear': true}),
             child: Text(
-              'Apply',
+              'Clear',
               style: GoogleFonts.ibmPlexSans(
-                color: AppTheme.primaryLight,
+                color: Colors.redAccent,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -509,45 +518,108 @@ class _InteractiveImageSearchScreenState extends State<InteractiveImageSearchScr
               ),
               child: Column(
                 children: [
-                  // Threshold control slider
+                  // Aligned Threshold and Max Results sliders
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-                    child: Row(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                    child: Column(
                       children: [
-                        Text(
-                          'Threshold',
-                          style: GoogleFonts.ibmPlexSans(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFF1A1C1B),
-                          ),
+                        // Threshold Row
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 85,
+                              child: Text(
+                                'Threshold',
+                                style: GoogleFonts.ibmPlexSans(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF1A1C1B),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Slider(
+                                value: _scoreThreshold,
+                                min: 0.0,
+                                max: 1.0,
+                                divisions: 20,
+                                activeColor: AppTheme.primary,
+                                label: _scoreThreshold.toStringAsFixed(2),
+                                onChanged: (v) {
+                                  setState(() {
+                                    _scoreThreshold = v;
+                                  });
+                                },
+                                onChangeEnd: (v) {
+                                  _triggerSearch(searchBox: _selectedBox);
+                                },
+                              ),
+                            ),
+                            SizedBox(
+                              width: 42,
+                              child: Text(
+                                _scoreThreshold.toStringAsFixed(2),
+                                style: GoogleFonts.ibmPlexMono(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.primary,
+                                ),
+                                textAlign: TextAlign.end,
+                                maxLines: 1,
+                                softWrap: false,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Slider(
-                            value: _scoreThreshold,
-                            min: 0.0,
-                            max: 1.0,
-                            divisions: 20,
-                            activeColor: AppTheme.primary,
-                            label: _scoreThreshold.toStringAsFixed(2),
-                            onChanged: (v) {
-                              setState(() {
-                                _scoreThreshold = v;
-                              });
-                            },
-                            onChangeEnd: (v) {
-                              _triggerSearch(searchBox: _selectedBox);
-                            },
-                          ),
-                        ),
-                        Text(
-                          _scoreThreshold.toStringAsFixed(2),
-                          style: GoogleFonts.ibmPlexMono(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.primary,
-                          ),
+                        // Max Results Row
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 85,
+                              child: Text(
+                                'Max Results',
+                                style: GoogleFonts.ibmPlexSans(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF1A1C1B),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Slider(
+                                value: _topK.toDouble(),
+                                min: 1.0,
+                                max: 10.0,
+                                divisions: 9,
+                                activeColor: AppTheme.primary,
+                                label: _topK.toString(),
+                                onChanged: (v) {
+                                  setState(() {
+                                    _topK = v.round();
+                                  });
+                                },
+                                onChangeEnd: (v) {
+                                  _triggerSearch(searchBox: _selectedBox);
+                                },
+                              ),
+                            ),
+                            SizedBox(
+                              width: 42,
+                              child: Text(
+                                _topK.toString(),
+                                style: GoogleFonts.ibmPlexMono(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.primary,
+                                ),
+                                textAlign: TextAlign.end,
+                                maxLines: 1,
+                                softWrap: false,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -640,6 +712,7 @@ class _InteractiveImageSearchScreenState extends State<InteractiveImageSearchScr
                                         'scores': _imageSearchProductIds.map((id) => _productScores[id] ?? 0.0).toList(),
                                         'detections': _detections,
                                         'threshold': _scoreThreshold,
+                                        'topK': _topK,
                                         'selectedProductId': int.tryParse(item.id),
                                       });
                                     },

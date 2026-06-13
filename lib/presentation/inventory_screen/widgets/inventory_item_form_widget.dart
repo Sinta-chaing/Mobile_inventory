@@ -200,6 +200,14 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
     return null;
   }
 
+  String? _selectedCategoryName() {
+    if (_selectedCategoryId == null) return null;
+    for (final cat in _categories) {
+      if (cat.categoryId == _selectedCategoryId) return cat.name;
+    }
+    return null;
+  }
+
   Future<void> _showAddCategoryDialog() async {
     final controller = TextEditingController();
     final created = await showDialog<backend.Category>(
@@ -433,6 +441,7 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         return;
       }
 
+      final categoryLabel = _selectedCategoryName() ?? 'Uncategorized';
       final subcategoryLabel = _selectedSubcategoryName() ?? 'Uncategorized';
 
       // Upload image if selected
@@ -468,7 +477,8 @@ class _InventoryItemFormWidgetState extends State<InventoryItemFormWidget> {
         inventoryId: widget.existingItem?.inventoryId ?? '',
         name: _nameController.text.trim(),
         sku: _skuController.text.trim().toUpperCase(),
-        category: subcategoryLabel,
+        category: categoryLabel,
+        subCategory: subcategoryLabel,
         quantity: int.parse(_quantityController.text),
         reorderLevel: int.parse(_reorderController.text),
         unitCost: double.parse(_costController.text),

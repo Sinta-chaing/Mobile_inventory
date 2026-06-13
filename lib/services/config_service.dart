@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
 /// Service to load and manage application configuration from env.json
@@ -13,31 +15,50 @@ class ConfigService {
     return _instance;
   }
 
-  /// Initialize configuration from assets/env.json
+  /// Initialize configuration from env.json or assets/env.json
   Future<void> init() async {
     if (_initialized) return;
 
     try {
-      // For Flutter web, use just the filename; for native, use assets/filename
+      // Try loading directly from env.json
       final jsonString = await rootBundle.loadString('env.json');
       _config = jsonDecode(jsonString);
       _initialized = true;
-      print('✅ Configuration loaded successfully');
+      print('✅ Configuration loaded successfully from env.json');
     } catch (e) {
-      print('❌ Error loading configuration: $e');
-      // Set default values if loading fails
-      _config = {
-        'DJANGO_API_URL': 'http://127.0.0.1:8000/',
-        'SUPABASE_URL': 'https://dummy.supabase.co',
-        'SUPABASE_ANON_KEY': 'dummykey',
-      };
-      _initialized = true;
+      print('ℹ️ Direct env.json load failed: $e. Trying assets/env.json...');
+      try {
+        // Fallback to assets/env.json (standard location)
+        final jsonString = await rootBundle.loadString('assets/env.json');
+        _config = jsonDecode(jsonString);
+        _initialized = true;
+        print('✅ Configuration loaded successfully from assets/env.json');
+      } catch (e2) {
+        print('❌ Error loading configuration from assets/env.json: $e2');
+        // Set default values if loading fails
+        _config = {
+          'DJANGO_API_URL': 'http://127.0.0.1:8000/',
+          'SUPABASE_URL': 'https://dummy.supabase.co',
+          'SUPABASE_ANON_KEY': 'dummykey',
+        };
+        _initialized = true;
+      }
     }
   }
 
-  /// Get the Django API base URL
+  /// Get the Django API base URL (automatically handles Android emulator redirect)
   String get djangoApiUrl {
-    final url = _config['DJANGO_API_URL'] ?? 'http://127.0.0.1:8000/';
+    var url = _config['DJANGO_API_URL'] ?? 'http://127.0.0.1:8000/';
+    
+    // Auto-map localhost/127.0.0.1 to 10.0.2.2 when running on Android emulator
+    if (!kIsWeb && Platform.isAndroid) {
+      if (url.contains('localhost')) {
+        url = url.replaceAll('localhost', '10.0.2.2');
+      } else if (url.contains('127.0.0.1')) {
+        url = url.replaceAll('127.0.0.1', '10.0.2.2');
+      }
+    }
+    
     return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
   }
 

@@ -103,7 +103,11 @@ class OrderService {
 
       print('📤 Updating invoice status on backend: $invoiceId -> $status');
 
-      final newStatus = status.toLowerCase() == 'paid' ? 'Paid' : 'Pending';
+      final newStatus = status.toLowerCase() == 'paid'
+          ? 'Paid'
+          : (status.toLowerCase() == 'cancelled' || status.toLowerCase() == 'canceled')
+              ? 'Cancelled'
+              : 'Pending';
       final payload = {'status': newStatus};
 
       await _apiService.patch(
@@ -114,8 +118,8 @@ class OrderService {
 
       print('✅ Invoice status updated on backend');
 
-      // Refresh from API to sync
-      await fetchOrders();
+      // Update local cache directly without doing a slow GET fetch Orders API request
+      await _updateOrderStatusLocal(invoiceId, status);
       return true;
     } catch (e) {
       print('❌ Error updating invoice: $e');
@@ -138,9 +142,12 @@ class OrderService {
         return false;
       }
 
-      // Update status
       final invoice = invoices[index];
-      final newStatus = status.toLowerCase() == 'paid' ? 'Paid' : 'Pending';
+      final newStatus = status.toLowerCase() == 'paid'
+          ? 'Paid'
+          : (status.toLowerCase() == 'cancelled' || status.toLowerCase() == 'canceled')
+              ? 'Cancelled'
+              : 'Pending';
 
       invoices[index] = Invoice(
         invoiceId: invoice.invoiceId,

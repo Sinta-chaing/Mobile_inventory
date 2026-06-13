@@ -5,12 +5,15 @@ import '../../../theme/app_theme.dart';
 class InventorySearchFilterWidget extends StatelessWidget {
   final String searchQuery;
   final List<String> categories;
+  final List<String> subcategories;
   final ValueChanged<String> onSearchChanged;
   final VoidCallback? onAddItem;
   final VoidCallback? onImageSearch;
   
   final String selectedCategory;
   final ValueChanged<String> onCategoryChanged;
+  final String selectedSubCategory;
+  final ValueChanged<String> onSubCategoryChanged;
   final String selectedStatus;
   final ValueChanged<String> onStatusChanged;
   final String selectedStockStatus;
@@ -20,11 +23,14 @@ class InventorySearchFilterWidget extends StatelessWidget {
     super.key,
     required this.searchQuery,
     required this.categories,
+    required this.subcategories,
     required this.onSearchChanged,
     this.onAddItem,
     this.onImageSearch,
     required this.selectedCategory,
     required this.onCategoryChanged,
+    required this.selectedSubCategory,
+    required this.onSubCategoryChanged,
     required this.selectedStatus,
     required this.onStatusChanged,
     required this.selectedStockStatus,
@@ -216,10 +222,17 @@ class InventorySearchFilterWidget extends StatelessWidget {
             child: Row(
               children: [
                 _buildDropdownFilter(
-                  label: 'category',
+                  label: 'Category',
                   value: selectedCategory,
                   items: categories,
                   onChanged: onCategoryChanged,
+                ),
+                const SizedBox(width: 8),
+                _buildDropdownFilter(
+                  label: 'Subcategory',
+                  value: selectedSubCategory,
+                  items: subcategories,
+                  onChanged: onSubCategoryChanged,
                 ),
                 const SizedBox(width: 8),
                 _buildDropdownFilter(

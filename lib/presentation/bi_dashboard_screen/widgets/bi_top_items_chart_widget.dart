@@ -8,11 +8,13 @@ import '../../inventory_screen/inventory_screen.dart';
 class BITopItemsChartWidget extends StatefulWidget {
   final List<Order> orders;
   final List<StockItem> stockItems;
+  final String selectedPeriod;
 
   const BITopItemsChartWidget({
     super.key,
     required this.orders,
     required this.stockItems,
+    required this.selectedPeriod,
   });
 
   @override
@@ -149,7 +151,7 @@ class _BITopItemsChartWidgetState extends State<BITopItemsChartWidget>
             ),
           ),
           Text(
-            'Month to date · Apr 2026',
+            widget.selectedPeriod,
             style: GoogleFonts.ibmPlexSans(
               fontSize: 11,
               color: AppTheme.outline,

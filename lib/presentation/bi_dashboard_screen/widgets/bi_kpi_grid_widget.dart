@@ -8,12 +8,14 @@ class BIKpiGridWidget extends StatefulWidget {
   final bool isTablet;
   final List<Order> orders;
   final List<StockItem> inventory;
+  final String selectedPeriod;
 
   const BIKpiGridWidget({
     super.key,
     this.isTablet = false,
     required this.orders,
     required this.inventory,
+    required this.selectedPeriod,
   });
 
   @override
@@ -27,32 +29,24 @@ class _BIKpiGridWidgetState extends State<BIKpiGridWidget>
   late List<Animation<double>> _animations;
 
   List<Map<String, dynamic>> _calculateKpis() {
-    final now = DateTime.now();
-    final isCurrentMonth = (date) =>
-        date.year == now.year && date.month == now.month;
-
-    // Calculate Revenue MTD (This Month)
-    double revenueMtd = 0;
+    // Calculate Revenue from pre-filtered orders
+    double revenue = 0;
     for (var order in widget.orders) {
-      if (isCurrentMonth(order.createdDate)) {
-        revenueMtd += order.total;
-      }
+      revenue += order.total;
     }
 
-    // Calculate COGS and Gross Profit from actual paid orders
+    // Calculate COGS and Gross Profit from actual pre-filtered orders
     double cogs = 0;
     for (var order in widget.orders) {
-      if (isCurrentMonth(order.createdDate)) {
-        for (var item in order.items) {
-          final stockItem = widget.inventory.cast<StockItem?>().firstWhere(
-            (s) => s!.name.toLowerCase() == item.itemName.toLowerCase(),
-            orElse: () => null,
-          );
-          cogs += item.quantity * (stockItem?.unitCost ?? 0.0);
-        }
+      for (var item in order.items) {
+        final stockItem = widget.inventory.cast<StockItem?>().firstWhere(
+          (s) => s!.name.toLowerCase() == item.itemName.toLowerCase(),
+          orElse: () => null,
+        );
+        cogs += item.quantity * (stockItem?.unitCost ?? 0.0);
       }
     }
-    double grossProfit = revenueMtd - cogs;
+    double grossProfit = revenue - cogs;
 
     double inventoryTotalCost = 0;
     for (var item in widget.inventory) {
@@ -70,14 +64,14 @@ class _BIKpiGridWidgetState extends State<BIKpiGridWidget>
     }
 
     // Calculate profit margin percentage
-    double profitMargin = revenueMtd > 0
-        ? ((grossProfit / revenueMtd) * 100)
+    double profitMargin = revenue > 0
+        ? ((grossProfit / revenue) * 100)
         : 0;
 
     return [
       {
-        'label': 'Revenue MTD',
-        'value': '\$${revenueMtd.toStringAsFixed(0)}',
+        'label': 'Revenue ${widget.selectedPeriod}',
+        'value': '\$${revenue.toStringAsFixed(0)}',
         'change': '+12.4%',
         'isPositive': true,
         'icon': 'trending_up',
@@ -85,7 +79,7 @@ class _BIKpiGridWidgetState extends State<BIKpiGridWidget>
         'bgColor': AppTheme.successContainer,
         'subtitle': widget.orders.isEmpty
             ? 'No orders yet'
-            : '${widget.orders.where((o) => isCurrentMonth(o.createdDate)).length} orders this month',
+            : '${widget.orders.length} orders ${widget.selectedPeriod.toLowerCase()}',
       },
       {
         'label': 'Gross Profit',

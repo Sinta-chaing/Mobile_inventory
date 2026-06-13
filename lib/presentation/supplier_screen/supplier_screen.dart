@@ -91,22 +91,41 @@ class _SupplierScreenState extends State<SupplierScreen> {
   }
 
   Future<void> _loadSuppliers() async {
+    // 1. Load from cache immediately
+    try {
+      final cachedSuppliers = await SupplierDataService.loadSuppliers();
+      final suppliers = cachedSuppliers
+          .map((s) => Supplier.fromBackend(s))
+          .toList();
+      if (mounted) {
+        setState(() {
+          _suppliers = suppliers;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading cached suppliers: $e');
+    }
+
+    // 2. Fetch fresh suppliers from API in the background
     try {
       final backendSuppliers = await SupplierDataService.fetchSuppliers();
       final suppliers = backendSuppliers
           .map((s) => Supplier.fromBackend(s))
           .toList();
-      if (!mounted) return;
-      setState(() {
-        _suppliers = suppliers;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _suppliers = suppliers;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      print('Error loading suppliers: $e');
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-      });
+      print('Error loading fresh suppliers: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

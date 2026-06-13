@@ -22,7 +22,8 @@ class StockItem {
   final String inventoryId; // Inventory ID (used for API updates)
   final String name;
   final String sku;
-  final String category;
+  final String? _category;
+  final String? _subCategory;
   int quantity;
   final int reorderLevel;
   final double unitCost;
@@ -32,12 +33,16 @@ class StockItem {
   final String semanticLabel;
   final String productStatus;
 
+  String get category => _category ?? 'Uncategorized';
+  String get subCategory => _subCategory ?? 'Uncategorized';
+
   StockItem({
     required this.id,
     required this.inventoryId,
     required this.name,
     required this.sku,
-    required this.category,
+    required String category,
+    required String subCategory,
     required this.quantity,
     required this.reorderLevel,
     required this.unitCost,
@@ -46,7 +51,8 @@ class StockItem {
     required this.imageUrl,
     required this.semanticLabel,
     this.productStatus = 'Active',
-  });
+  })  : _category = category,
+        _subCategory = subCategory;
 
   StockStatusEnum get status {
     if (quantity == 0) return StockStatusEnum.outOfStock;
@@ -56,20 +62,19 @@ class StockItem {
 
   factory StockItem.fromMap(Map<String, dynamic> map) {
     return StockItem(
-      id: map['id'] as String,
-      inventoryId:
-          map['inventoryId'] as String? ??
-          '', // Use first inventory ID if available
-      name: map['name'] as String,
-      sku: map['sku'] as String,
-      category: map['category'] as String,
-      quantity: map['quantity'] as int,
-      reorderLevel: map['reorderLevel'] as int,
-      unitCost: (map['unitCost'] as num).toDouble(),
-      unitPrice: (map['unitPrice'] as num).toDouble(),
-      supplierName: map['supplierName'] as String,
-      imageUrl: map['imageUrl'] as String,
-      semanticLabel: map['semanticLabel'] as String,
+      id: map['id'] as String? ?? '',
+      inventoryId: map['inventoryId'] as String? ?? '',
+      name: map['name'] as String? ?? 'Unknown Product',
+      sku: map['sku'] as String? ?? '',
+      category: map['category'] as String? ?? 'Uncategorized',
+      subCategory: map['subCategory'] as String? ?? 'Uncategorized',
+      quantity: map['quantity'] as int? ?? 0,
+      reorderLevel: map['reorderLevel'] as int? ?? 10,
+      unitCost: (map['unitCost'] as num?)?.toDouble() ?? 0.0,
+      unitPrice: (map['unitPrice'] as num?)?.toDouble() ?? 0.0,
+      supplierName: map['supplierName'] as String? ?? '',
+      imageUrl: map['imageUrl'] as String? ?? '',
+      semanticLabel: map['semanticLabel'] as String? ?? '',
       productStatus: map['productStatus'] as String? ?? 'Active',
     );
   }
@@ -81,6 +86,7 @@ class StockItem {
       'name': name,
       'sku': sku,
       'category': category,
+      'subCategory': subCategory,
       'quantity': quantity,
       'reorderLevel': reorderLevel,
       'unitCost': unitCost,
@@ -110,12 +116,14 @@ class _InventoryScreenState extends State<InventoryScreen>
   final Set<int> _imageSearchProductIds = {};
   List<Map<String, dynamic>>? _searchDetections;
   double _searchThreshold = 0.3;
+  int _searchTopK = 10;
   XFile? _lastSearchImage;
   final Map<int, double> _productScores = {};
 
   late List<StockItem> _items;
 
   String _selectedCategory = 'All';
+  String _selectedSubCategory = 'All';
   String _selectedStatus = 'All';
   String _selectedStockStatus = 'All';
 
@@ -129,6 +137,20 @@ class _InventoryScreenState extends State<InventoryScreen>
     return categories;
   }
 
+  List<String> get _subCategoriesList {
+    final list = _items
+        .where((item) => _selectedCategory == 'All' || item.category.toLowerCase() == _selectedCategory.toLowerCase())
+        .map((item) => item.subCategory)
+        .toSet()
+        .toList();
+    list.sort();
+    final subcategories = ['All', ...list];
+    if (!subcategories.contains(_selectedSubCategory)) {
+      _selectedSubCategory = 'All';
+    }
+    return subcategories;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -136,8 +158,21 @@ class _InventoryScreenState extends State<InventoryScreen>
   }
 
   Future<void> _loadInventory() async {
+    // 1. Load from local cache immediately
     try {
-      // Fetch products from local storage
+      final cachedItems = await InventoryService.loadInventory();
+      if (mounted) {
+        setState(() {
+          _items = cachedItems;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading cached inventory: $e');
+    }
+
+    // 2. Fetch fresh products from API in the background
+    try {
       final items = await InventoryService.fetchProducts();
       if (mounted) {
         setState(() {
@@ -146,7 +181,7 @@ class _InventoryScreenState extends State<InventoryScreen>
         });
       }
     } catch (e) {
-      print('Error loading inventory: $e');
+      print('Error loading fresh inventory: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -176,6 +211,11 @@ class _InventoryScreenState extends State<InventoryScreen>
       }
       if (_selectedCategory != 'All') {
         if (item.category.toLowerCase() != _selectedCategory.toLowerCase()) {
+          return false;
+        }
+      }
+      if (_selectedSubCategory != 'All') {
+        if (item.subCategory.toLowerCase() != _selectedSubCategory.toLowerCase()) {
           return false;
         }
       }
@@ -250,21 +290,30 @@ class _InventoryScreenState extends State<InventoryScreen>
         builder: (_) => InteractiveImageSearchScreen(
           imageFile: picked,
           allItems: _items,
+          initialThreshold: _searchThreshold ?? 0.3,
+          initialTopK: _searchTopK ?? 10,
         ),
         fullscreenDialog: true,
       ),
     );
     if (searchResult == null || !mounted) return;
 
+    if (searchResult['clear'] == true) {
+      _clearImageSearch();
+      return;
+    }
+
     final ids = (searchResult['productIds'] as List).cast<int>();
     final scores = (searchResult['scores'] as List).cast<double>();
     final detections = (searchResult['detections'] as List).cast<Map<String, dynamic>>();
     final threshold = searchResult['threshold'] as double;
+    final topK = searchResult['topK'] as int? ?? 10;
     final selectedProductId = searchResult['selectedProductId'] as int?;
 
     setState(() {
       _isImageSearchActive = true;
       _searchThreshold = threshold;
+      _searchTopK = topK;
       _imageSearchProductIds.clear();
       _imageSearchProductIds.addAll(ids);
       _productScores.clear();
@@ -293,21 +342,30 @@ class _InventoryScreenState extends State<InventoryScreen>
         builder: (_) => InteractiveImageSearchScreen(
           imageFile: image,
           allItems: _items,
+          initialThreshold: _searchThreshold ?? 0.3,
+          initialTopK: _searchTopK ?? 10,
         ),
         fullscreenDialog: true,
       ),
     );
     if (searchResult == null || !mounted) return;
 
+    if (searchResult['clear'] == true) {
+      _clearImageSearch();
+      return;
+    }
+
     final ids = (searchResult['productIds'] as List).cast<int>();
     final scores = (searchResult['scores'] as List).cast<double>();
     final detections = (searchResult['detections'] as List).cast<Map<String, dynamic>>();
     final threshold = searchResult['threshold'] as double;
+    final topK = searchResult['topK'] as int? ?? 10;
     final selectedProductId = searchResult['selectedProductId'] as int?;
 
     setState(() {
       _isImageSearchActive = true;
       _searchThreshold = threshold;
+      _searchTopK = topK;
       _imageSearchProductIds.clear();
       _imageSearchProductIds.addAll(ids);
       _productScores.clear();
@@ -556,7 +614,7 @@ class _InventoryScreenState extends State<InventoryScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '${_searchThreshold.toStringAsFixed(2)}',
+                'T: ${(_searchThreshold ?? 0.3).toStringAsFixed(2)} | K: ${_searchTopK ?? 10}',
                 style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.primary),
               ),
               SizedBox(
@@ -602,11 +660,17 @@ class _InventoryScreenState extends State<InventoryScreen>
         InventorySearchFilterWidget(
           searchQuery: _searchQuery,
           categories: _categoriesList,
+          subcategories: _subCategoriesList,
           onSearchChanged: (q) => setState(() => _searchQuery = q),
           onAddItem: _showAddItemSheet,
           onImageSearch: _performImageSearch,
           selectedCategory: _selectedCategory,
-          onCategoryChanged: (cat) => setState(() => _selectedCategory = cat),
+          onCategoryChanged: (cat) => setState(() {
+            _selectedCategory = cat;
+            _selectedSubCategory = 'All';
+          }),
+          selectedSubCategory: _selectedSubCategory,
+          onSubCategoryChanged: (sub) => setState(() => _selectedSubCategory = sub),
           selectedStatus: _selectedStatus,
           onStatusChanged: (stat) => setState(() => _selectedStatus = stat),
           selectedStockStatus: _selectedStockStatus,
@@ -650,11 +714,17 @@ class _InventoryScreenState extends State<InventoryScreen>
               InventorySearchFilterWidget(
                 searchQuery: _searchQuery,
                 categories: _categoriesList,
+                subcategories: _subCategoriesList,
                 onSearchChanged: (q) => setState(() => _searchQuery = q),
                 onAddItem: _showAddItemSheet,
                 onImageSearch: _performImageSearch,
                 selectedCategory: _selectedCategory,
-                onCategoryChanged: (cat) => setState(() => _selectedCategory = cat),
+                onCategoryChanged: (cat) => setState(() {
+                  _selectedCategory = cat;
+                  _selectedSubCategory = 'All';
+                }),
+                selectedSubCategory: _selectedSubCategory,
+                onSubCategoryChanged: (sub) => setState(() => _selectedSubCategory = sub),
                 selectedStatus: _selectedStatus,
                 onStatusChanged: (stat) => setState(() => _selectedStatus = stat),
                 selectedStockStatus: _selectedStockStatus,

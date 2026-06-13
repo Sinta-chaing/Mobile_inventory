@@ -49,6 +49,7 @@ class _BIProfitBreakdownWidgetState extends State<BIProfitBreakdownWidget> {
             name: item.itemName,
             sku: '',
             category: '',
+            subCategory: '',
             quantity: 0,
             reorderLevel: 0,
             unitCost: 0.0,

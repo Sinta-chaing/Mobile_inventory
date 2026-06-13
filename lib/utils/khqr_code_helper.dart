@@ -14,20 +14,15 @@ class KhqrCodeHelper {
   /// Generate a KHQR payment string for [amountInUsd] using the local SDK.
   static String? generateKhqrCode(double amountInUsd) {
     try {
-      final expire =
-          DateTime.now().millisecondsSinceEpoch + (10 * 3600000);
-
-      final info = MerchantInfo(
+      final info = IndividualInfo(
         bakongAccountId: KhqrConfig.bakongAccountId,
-        acquiringBank: KhqrConfig.acquiringBank,
-        merchantId: KhqrConfig.merchantId,
         merchantName: KhqrConfig.merchantName,
+        accountInformation: KhqrConfig.merchantId,
         currency: KhqrCurrency.usd,
         amount: amountInUsd,
-        expirationTimestamp: expire,
       );
 
-      final res = KhqrSdk.generateMerchant(info);
+      final res = KhqrSdk.generateIndividual(info);
       final qr = res.data?.qr;
       if (qr == null || qr.isEmpty) return null;
       return qr;

@@ -27,6 +27,11 @@ class CustomErrorWidget extends StatelessWidget {
                   'assets/images/sad_face.svg',
                   height: 42,
                   width: 42,
+                  errorBuilder: (context, error, stackTrace) => const Icon(
+                    Icons.error_outline,
+                    size: 42,
+                    color: Color(0xFFEF4444),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(

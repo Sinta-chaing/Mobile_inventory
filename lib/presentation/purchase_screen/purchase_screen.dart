@@ -18,7 +18,7 @@ import '../../models/all_models.dart' as backend;
 
 enum PaymentMethod { cash, khqr }
 
-enum OrderStatus { pending, paid }
+enum OrderStatus { pending, paid, cancelled }
 
 class Customer {
   final int customerId;
@@ -83,7 +83,7 @@ class Order {
 
   /// Map from backend Invoice model
   static Order fromBackend(backend.Invoice invoice) {
-    final method = invoice.paymentMethod.toLowerCase() == 'cash'
+    final method = ((invoice.paymentMethod as String?) ?? 'cash').toLowerCase() == 'cash'
         ? PaymentMethod.cash
         : PaymentMethod.khqr;
 
@@ -105,7 +105,7 @@ class Order {
     return Order(
       invoiceId: invoice.invoiceId,
       createdDate: invoice.createdAt,
-      customerName: invoice.customerName,
+      customerName: (invoice.customerName as String?) ?? '',
       customerPhone: invoice.customerPhone ?? '',
       paymentMethod: method,
       total: invoice.grandTotal,
@@ -119,17 +119,24 @@ class Order {
   }
 
   /// Helper to map backend invoice status string to OrderStatus enum
-  static OrderStatus _mapInvoiceStatusToOrderStatus(String status) {
-    final normalized = status.toLowerCase();
+  static OrderStatus _mapInvoiceStatusToOrderStatus(String? status) {
+    final normalized = (status ?? 'pending').toLowerCase();
     if (normalized == 'paid' || normalized == 'completed') {
       return OrderStatus.paid;
+    }
+    if (normalized == 'cancelled' || normalized == 'canceled') {
+      return OrderStatus.cancelled;
     }
     return OrderStatus.pending; // Default to pending for any other status
   }
 
   /// Convert UI Order model back to backend Invoice model
   backend.Invoice toBackend() {
-    final backendStatus = status == OrderStatus.paid ? 'Paid' : 'Pending';
+    final backendStatus = status == OrderStatus.paid
+        ? 'Paid'
+        : status == OrderStatus.cancelled
+            ? 'Cancelled'
+            : 'Pending';
     final backendMethod = paymentMethod == PaymentMethod.cash ? 'Cash' : 'KHQR';
 
     final purchases = items
@@ -205,6 +212,7 @@ class PurchaseScreen extends StatefulWidget {
 class _PurchaseScreenState extends State<PurchaseScreen> {
   int _selectedNavIndex = 1;
   String _searchQuery = '';
+  String _selectedStatusFilter = 'All';
   bool _isLoading = true;
 
   // Customer and product data loaded from API
@@ -219,46 +227,84 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     _loadData();
   }
 
+  void _setLocalData({
+    required List<backend.Customer> customersList,
+    required List<StockItem> inventoryList,
+    required List<backend.Invoice> ordersList,
+  }) {
+    _customers = customersList
+        .map((c) => Customer.fromBackend(c))
+        .toList();
+    _products = inventoryList
+        .map(
+          (stock) => Product(
+            productId: int.parse(stock.id),
+            name: stock.name,
+            sellingPrice: stock.unitPrice,
+          ),
+        )
+        .toList();
+    _orders = ordersList
+        .map((inv) => Order.fromBackend(inv))
+        .toList();
+  }
+
   Future<void> _loadData() async {
+    // 1. Load from cache immediately
     try {
-      // Load customers from backend
-      final backendCustomers = await CustomerDataService.fetchCustomers();
-      final customers = backendCustomers
-          .map((c) => Customer.fromBackend(c))
-          .toList();
+      final cachedResults = await Future.wait([
+        CustomerDataService.loadCustomers(),
+        InventoryService.loadInventory(),
+        OrderService.loadOrders(),
+      ]);
 
-      // Load products from inventory service
-      final inventory = await InventoryService.fetchProducts();
-      final products = inventory
-          .map(
-            (stock) => Product(
-              productId: int.parse(stock.id),
-              name: stock.name,
-              sellingPrice: stock.unitPrice,
-            ),
-          )
-          .toList();
+      final cachedCustomers = cachedResults[0] as List<backend.Customer>;
+      final cachedInventory = cachedResults[1] as List<StockItem>;
+      final cachedOrders = cachedResults[2] as List<backend.Invoice>;
 
-      // Load orders from backend first (falls back to cache automatically)
-      final backendInvoices = await OrderService.fetchOrders();
-      final loadedOrders = backendInvoices
-          .map((inv) => Order.fromBackend(inv))
-          .toList();
-      print('🔄 Purchase screen loaded ${loadedOrders.length} orders');
-
-      if (!mounted) return;
-      setState(() {
-        _customers = customers;
-        _products = products;
-        _orders = loadedOrders;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _setLocalData(
+            customersList: cachedCustomers,
+            inventoryList: cachedInventory,
+            ordersList: cachedOrders,
+          );
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      print('❌ Error loading data in purchase screen: $e');
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-      });
+      print('❌ Error loading cached data in purchase screen: $e');
+    }
+
+    // 2. Fetch fresh data from backend concurrently
+    try {
+      final freshResults = await Future.wait([
+        CustomerDataService.fetchCustomers(),
+        InventoryService.fetchProducts(),
+        OrderService.fetchOrders(),
+      ]);
+
+      final freshCustomers = freshResults[0] as List<backend.Customer>;
+      final freshInventory = freshResults[1] as List<StockItem>;
+      final freshInvoices = freshResults[2] as List<backend.Invoice>;
+
+      if (mounted) {
+        setState(() {
+          _setLocalData(
+            customersList: freshCustomers,
+            inventoryList: freshInventory,
+            ordersList: freshInvoices,
+          );
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('❌ Error loading fresh data in purchase screen: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -289,6 +335,7 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
             name: orderItem.itemName,
             sku: '',
             category: '',
+            subCategory: '',
             quantity: 0,
             reorderLevel: 0,
             unitCost: 0.0,
@@ -351,13 +398,32 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
 
   List<Order> get _filteredOrders {
     return _orders.where((o) {
+      final customerNameStr = o.customerName ?? '';
+      final invoiceIdStr = o.invoiceId?.toString() ?? '';
       final matchSearch =
           _searchQuery.isEmpty ||
-          o.invoiceId.toString().toLowerCase().contains(
+          invoiceIdStr.toLowerCase().contains(
             _searchQuery.toLowerCase(),
           ) ||
-          o.customerName.toLowerCase().contains(_searchQuery.toLowerCase());
-      return matchSearch;
+          customerNameStr.toLowerCase().contains(_searchQuery.toLowerCase());
+
+      // Status filter
+      bool matchStatus = true;
+      if (_selectedStatusFilter != 'All') {
+        switch (_selectedStatusFilter) {
+          case 'Pending':
+            matchStatus = o.status == OrderStatus.pending;
+            break;
+          case 'Paid':
+            matchStatus = o.status == OrderStatus.paid;
+            break;
+          case 'Cancelled':
+            matchStatus = o.status == OrderStatus.cancelled;
+            break;
+        }
+      }
+
+      return matchSearch && matchStatus;
     }).toList();
   }
 
@@ -438,6 +504,9 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     final pendingOrders = _orders
         .where((o) => o.status == OrderStatus.pending)
         .length;
+    final cancelledOrders = _orders
+        .where((o) => o.status == OrderStatus.cancelled)
+        .length;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
@@ -496,13 +565,13 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
             children: [
               Expanded(
                 child: _buildStatCard(
-                  'Total Orders',
+                  'Total',
                   '$totalOrders',
                   Icons.receipt_long_rounded,
                   AppTheme.primary,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: _buildStatCard(
                   'Paid',
@@ -511,13 +580,22 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
                   AppTheme.success,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: _buildStatCard(
                   'Pending',
                   '$pendingOrders',
                   Icons.hourglass_bottom_rounded,
                   AppTheme.warning,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildStatCard(
+                  'Cancelled',
+                  '$cancelledOrders',
+                  Icons.cancel_rounded,
+                  AppTheme.error,
                 ),
               ),
             ],
@@ -579,42 +657,116 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
     );
   }
 
+  Widget _buildStatusFilterDropdown({
+    required String label,
+    required String value,
+    required List<String> items,
+    required ValueChanged<String> onChanged,
+  }) {
+    final dropdownValue = items.contains(value) ? value : items.first;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.outlineVariant.withAlpha(150)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: dropdownValue,
+          isDense: true,
+          style: GoogleFonts.ibmPlexSans(
+            fontSize: 13,
+            color: const Color(0xFF1A1C1B),
+            fontWeight: FontWeight.w500,
+          ),
+          icon: const Icon(Icons.arrow_drop_down, size: 18, color: AppTheme.outline),
+          items: items.map((String val) {
+            return DropdownMenuItem<String>(
+              value: val,
+              child: Text(
+                '$label: $val',
+                style: GoogleFonts.ibmPlexSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF1A1C1B),
+                ),
+              ),
+            );
+          }).toList(),
+          onChanged: (val) {
+            if (val != null) onChanged(val);
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildSearchBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.outlineVariant),
-        ),
-        child: TextField(
-          onChanged: (v) => setState(() => _searchQuery = v),
-          style: GoogleFonts.dmSans(
-            fontSize: 14,
-            color: const Color(0xFF1A1C2B),
+    return Container(
+      color: AppTheme.surface,
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Search bar
+          Container(
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceVariant,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.outlineVariant),
+            ),
+            child: TextField(
+              onChanged: (v) => setState(() => _searchQuery = v),
+              style: GoogleFonts.dmSans(
+                fontSize: 14,
+                color: const Color(0xFF1A1C2B),
+              ),
+              decoration: InputDecoration(
+                hintText: 'Search by order # or customer…',
+                hintStyle: GoogleFonts.dmSans(
+                  fontSize: 14,
+                  color: AppTheme.outline,
+                ),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: AppTheme.outline,
+                  size: 20,
+                ),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 16, color: AppTheme.outline),
+                        onPressed: () => setState(() => _searchQuery = ''),
+                        padding: EdgeInsets.zero,
+                      )
+                    : null,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                filled: false,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+              ),
+            ),
           ),
-          decoration: InputDecoration(
-            hintText: 'Search by order # or customer…',
-            hintStyle: GoogleFonts.dmSans(
-              fontSize: 14,
-              color: AppTheme.outline,
-            ),
-            prefixIcon: const Icon(
-              Icons.search_rounded,
-              color: AppTheme.outline,
-              size: 20,
-            ),
-            border: InputBorder.none,
-            enabledBorder: InputBorder.none,
-            focusedBorder: InputBorder.none,
-            filled: false,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 14,
+          const SizedBox(height: 12),
+          // Horizontal scrollable filter row
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildStatusFilterDropdown(
+                  label: 'Order Type',
+                  value: _selectedStatusFilter,
+                  items: const ['All', 'Pending', 'Paid', 'Cancelled'],
+                  onChanged: (val) => setState(() => _selectedStatusFilter = val),
+                ),
+              ],
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -649,10 +801,22 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
   }
 
   Widget _buildOrderCard(Order order) {
-    final statusColor = order.status == OrderStatus.paid
-        ? AppTheme.success
-        : AppTheme.warning;
-    final statusLabel = order.status == OrderStatus.paid ? 'Paid' : 'Pending';
+    final Color statusColor;
+    final String statusLabel;
+    switch (order.status) {
+      case OrderStatus.paid:
+        statusColor = AppTheme.success;
+        statusLabel = 'Paid';
+        break;
+      case OrderStatus.cancelled:
+        statusColor = AppTheme.error;
+        statusLabel = 'Cancelled';
+        break;
+      case OrderStatus.pending:
+        statusColor = AppTheme.warning;
+        statusLabel = 'Pending';
+        break;
+    }
     final paymentLabel = order.paymentMethod == PaymentMethod.cash
         ? 'Cash'
         : 'KHQR';
@@ -881,57 +1045,103 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
             const SizedBox(height: 12),
             // Payment Status Toggle Button - Only visible when pending
             if (order.status == OrderStatus.pending)
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () async {
-                  final success = await OrderService.markOrderAsPaid(
-                    order.invoiceId,
-                  );
-                  if (success) {
-                    OrderService.fetchOrders().then((invoices) {
-                      if (mounted) {
-                        setState(() {
-                          _orders = invoices
-                              .map(
-                                (inv) => Order.fromBackend(inv),
-                              )
-                              .toList();
-                        });
-                      }
-                    });
-                  } else {
-                    this.setState(() {
-                      order.status = OrderStatus.paid;
-                      order.paidAt = DateTime.now();
-                    });
-                    _saveOrders();
-                  }
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Order marked as paid'),
-                        duration: Duration(seconds: 2),
+              Row(
+                children: [
+                  Expanded(
+                    child: AnimatedScaleButton(
+                      onTap: () async {
+                        final success = await OrderService.markOrderAsPaid(
+                          order.invoiceId,
+                        );
+                        if (success) {
+                          if (mounted) {
+                            setState(() {
+                              order.status = OrderStatus.paid;
+                              order.paidAt = DateTime.now();
+                            });
+                          }
+                        } else {
+                          this.setState(() {
+                            order.status = OrderStatus.paid;
+                            order.paidAt = DateTime.now();
+                          });
+                          _saveOrders();
+                        }
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Order marked as paid'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.green, width: 1.5),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'Mark as Paid',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.dmSans(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: Colors.green,
+                          ),
+                        ),
                       ),
-                    );
-                  }
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.green, width: 1.5),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    'Mark as Paid',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.dmSans(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: Colors.green,
                     ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: AnimatedScaleButton(
+                      onTap: () async {
+                        final success = await OrderService.updateOrderStatus(
+                          order.invoiceId,
+                          'cancelled',
+                        );
+                        if (success) {
+                          if (mounted) {
+                            setState(() {
+                              order.status = OrderStatus.cancelled;
+                            });
+                          }
+                        } else {
+                          this.setState(() {
+                            order.status = OrderStatus.cancelled;
+                          });
+                          _saveOrders();
+                        }
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Order cancelled'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.red, width: 1.5),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'Cancel',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.dmSans(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
           ],
         ),
@@ -950,14 +1160,10 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
           final success = await OrderService.markOrderAsPaid(order.invoiceId);
           if (!mounted) return;
           if (success) {
-            final invoices = await OrderService.fetchOrders();
-            if (mounted) {
-              setState(() {
-                _orders = invoices
-                    .map((inv) => Order.fromBackend(inv))
-                    .toList();
-              });
-            }
+            setState(() {
+              order.status = OrderStatus.paid;
+              order.paidAt = DateTime.now();
+            });
           } else {
             setState(() {
               order.status = OrderStatus.paid;
@@ -969,6 +1175,26 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
             Navigator.pop(context);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Order marked as paid')),
+            );
+          }
+        },
+        onCancel: () async {
+          final success = await OrderService.updateOrderStatus(order.invoiceId, 'cancelled');
+          if (!mounted) return;
+          if (success) {
+            setState(() {
+              order.status = OrderStatus.cancelled;
+            });
+          } else {
+            setState(() {
+              order.status = OrderStatus.cancelled;
+            });
+            _saveOrders();
+          }
+          if (mounted) {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Order cancelled')),
             );
           }
         },
@@ -1910,11 +2136,13 @@ class _PurchaseScreenState extends State<PurchaseScreen> {
 class _OrderDetailSheet extends StatefulWidget {
   final Order order;
   final VoidCallback onMarkPaid;
+  final VoidCallback onCancel;
   final Future<void> Function() onDelete;
 
   const _OrderDetailSheet({
     required this.order,
     required this.onMarkPaid,
+    required this.onCancel,
     required this.onDelete,
   });
 
@@ -1929,6 +2157,7 @@ class _OrderDetailSheetState extends State<_OrderDetailSheet> {
 
   Order get order => widget.order;
   VoidCallback get onMarkPaid => widget.onMarkPaid;
+  VoidCallback get onCancel => widget.onCancel;
   Future<void> Function() get onDelete => widget.onDelete;
 
   bool get _showKhqrSection =>
@@ -2081,17 +2310,25 @@ class _OrderDetailSheetState extends State<_OrderDetailSheet> {
                         decoration: BoxDecoration(
                           color: order.status == OrderStatus.paid
                               ? AppTheme.success.withAlpha(25)
-                              : AppTheme.warning.withAlpha(25),
+                              : order.status == OrderStatus.cancelled
+                                  ? AppTheme.error.withAlpha(25)
+                                  : AppTheme.warning.withAlpha(25),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          order.status == OrderStatus.paid ? 'Paid' : 'Pending',
+                          order.status == OrderStatus.paid
+                              ? 'Paid'
+                              : order.status == OrderStatus.cancelled
+                                  ? 'Cancelled'
+                                  : 'Pending',
                           style: GoogleFonts.dmSans(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                             color: order.status == OrderStatus.paid
                                 ? AppTheme.success
-                                : AppTheme.warning,
+                                : order.status == OrderStatus.cancelled
+                                    ? AppTheme.error
+                                    : AppTheme.warning,
                           ),
                         ),
                       ),
@@ -2410,21 +2647,54 @@ class _OrderDetailSheetState extends State<_OrderDetailSheet> {
                   const SizedBox(height: 20),
                   // Action Buttons
                   if (order.status == OrderStatus.pending)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: onMarkPaid,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.success,
-                        ),
-                        child: Text(
-                          'Mark as Paid',
-                          style: GoogleFonts.dmSans(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: AnimatedScaleButton(
+                            onTap: onMarkPaid,
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              decoration: BoxDecoration(
+                                color: AppTheme.success,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                'Mark as Paid',
+                                style: GoogleFonts.dmSans(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: AnimatedScaleButton(
+                            onTap: onCancel,
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              decoration: BoxDecoration(
+                                color: AppTheme.error,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                'Cancel',
+                                style: GoogleFonts.dmSans(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   if (order.status == OrderStatus.pending)
                     const SizedBox(height: 12),
@@ -2485,6 +2755,62 @@ class _OrderDetailSheetState extends State<_OrderDetailSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class AnimatedScaleButton extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+
+  const AnimatedScaleButton({
+    super.key,
+    required this.child,
+    required this.onTap,
+  });
+
+  @override
+  State<AnimatedScaleButton> createState() => _AnimatedScaleButtonState();
+}
+
+class _AnimatedScaleButtonState extends State<AnimatedScaleButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 80),
+      lowerBound: 0.92,
+      upperBound: 1.0,
+      value: 1.0,
+    );
+    _scaleAnimation = _controller;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _controller.animateTo(0.92, curve: Curves.easeInOut),
+      onTapUp: (_) {
+        _controller.animateTo(1.0, curve: Curves.easeInOut);
+        widget.onTap();
+      },
+      onTapCancel: () => _controller.animateTo(1.0, curve: Curves.easeInOut),
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: widget.child,
       ),
     );
   }

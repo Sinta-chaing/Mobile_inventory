@@ -79,61 +79,101 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
     _loadData();
   }
 
-  Future<void> _loadData() async {
-    try {
-      final backendOrders = await OrderService.fetchOrders();
-      final inventory = await InventoryService.fetchProducts();
-      // Log costs for debugging
-      for (final s in inventory) {
-        print(
-          '📊 BI stock: ${s.name} → cost=\$${s.unitCost.toStringAsFixed(2)} price=\$${s.unitPrice.toStringAsFixed(2)}',
-        );
+  void _setLocalData({
+    required List<backend.Invoice> ordersList,
+    required List<StockItem> inventoryList,
+    required List<backend.Customer> customersList,
+    required List<backend.Source> suppliersList,
+  }) {
+    // Convert backend models to UI models
+    _orders = ordersList.map((inv) => Order.fromBackend(inv)).toList();
+    _stockItems = inventoryList;
+    _customers = customersList.map((c) => Customer.fromBackend(c)).toList();
+
+    // Compute supplier metrics from order data
+    final supplierOrderTotals = <String, double>{};
+    final supplierOrderCounts = <String, int>{};
+    for (final order in _orders) {
+      for (final item in order.items) {
+        final supplierName = _stockItems
+            .where((s) => s.name.toLowerCase() == item.itemName.toLowerCase())
+            .map((s) => s.supplierName)
+            .firstOrNull;
+        if (supplierName != null && supplierName.isNotEmpty) {
+          supplierOrderTotals.update(
+              supplierName, (v) => v + item.lineTotal,
+              ifAbsent: () => item.lineTotal);
+          supplierOrderCounts.update(supplierName, (v) => v + 1,
+              ifAbsent: () => 1);
+        }
       }
-      final backendCustomers = await CustomerDataService.loadCustomers();
-      final backendSuppliers = await SupplierDataService.fetchSuppliers();
+    }
+    _suppliers = suppliersList
+        .map((src) => Supplier.fromBackend(src))
+        .map((s) {
+      s.totalOrders = supplierOrderTotals[s.name] ?? s.totalOrders;
+      s.orderCount = supplierOrderCounts[s.name] ?? s.orderCount;
+      return s;
+    }).toList();
+  }
+
+  Future<void> _loadData() async {
+    // 1. Load from local cache immediately
+    try {
+      final cachedResults = await Future.wait([
+        OrderService.loadOrders(),
+        InventoryService.loadInventory(),
+        CustomerDataService.loadCustomers(),
+        SupplierDataService.loadSuppliers(),
+      ]);
+
+      final cachedOrders = cachedResults[0] as List<backend.Invoice>;
+      final cachedInventory = cachedResults[1] as List<StockItem>;
+      final cachedCustomers = cachedResults[2] as List<backend.Customer>;
+      final cachedSuppliers = cachedResults[3] as List<backend.Source>;
 
       if (mounted) {
         setState(() {
-          // Convert backend models to UI models
-          _orders = backendOrders.map((inv) => Order.fromBackend(inv)).toList();
-          _stockItems = inventory;
-          _customers = backendCustomers
-              .map((c) => Customer.fromBackend(c))
-              .toList();
-
-          // Compute supplier metrics from order data
-          final supplierOrderTotals = <String, double>{};
-          final supplierOrderCounts = <String, int>{};
-          for (final order in _orders) {
-            for (final item in order.items) {
-              final supplierName = _stockItems
-                  .where((s) =>
-                      s.name.toLowerCase() == item.itemName.toLowerCase())
-                  .map((s) => s.supplierName)
-                  .firstOrNull;
-              if (supplierName != null && supplierName.isNotEmpty) {
-                supplierOrderTotals.update(
-                    supplierName, (v) => v + item.lineTotal,
-                    ifAbsent: () => item.lineTotal);
-                supplierOrderCounts.update(supplierName, (v) => v + 1,
-                    ifAbsent: () => 1);
-              }
-            }
-          }
-          _suppliers = backendSuppliers
-              .map((src) => Supplier.fromBackend(src))
-              .map((s) {
-            s.totalOrders =
-                supplierOrderTotals[s.name] ?? s.totalOrders;
-            s.orderCount =
-                supplierOrderCounts[s.name] ?? s.orderCount;
-            return s;
-          }).toList();
+          _setLocalData(
+            ordersList: cachedOrders,
+            inventoryList: cachedInventory,
+            customersList: cachedCustomers,
+            suppliersList: cachedSuppliers,
+          );
           _isLoading = false;
         });
       }
     } catch (e) {
-      print('Error loading BI data: $e');
+      print('Error loading cached BI data: $e');
+    }
+
+    // 2. Fetch fresh data from backend concurrently
+    try {
+      final freshResults = await Future.wait([
+        OrderService.fetchOrders(),
+        InventoryService.fetchProducts(),
+        CustomerDataService.fetchCustomers(),
+        SupplierDataService.fetchSuppliers(),
+      ]);
+
+      final freshOrders = freshResults[0] as List<backend.Invoice>;
+      final freshInventory = freshResults[1] as List<StockItem>;
+      final freshCustomers = freshResults[2] as List<backend.Customer>;
+      final freshSuppliers = freshResults[3] as List<backend.Source>;
+
+      if (mounted) {
+        setState(() {
+          _setLocalData(
+            ordersList: freshOrders,
+            inventoryList: freshInventory,
+            customersList: freshCustomers,
+            suppliersList: freshSuppliers,
+          );
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading fresh BI data: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -173,6 +213,31 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
       _lastUpdated = DateTime.now();
       _isRefreshing = false;
     });
+  }
+
+  List<Order> _getFilteredOrders() {
+    final now = DateTime.now();
+    return _orders.where((order) {
+      final orderDate = order.createdDate;
+      switch (_selectedPeriod) {
+        case 'Today':
+          return orderDate.year == now.year &&
+              orderDate.month == now.month &&
+              orderDate.day == now.day;
+        case 'This Week':
+          final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+          final start = DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day);
+          return orderDate.isAfter(start) || orderDate.isAtSameMomentAs(start);
+        case 'This Month':
+          return orderDate.year == now.year && orderDate.month == now.month;
+        case 'This Quarter':
+          final currentQuarter = ((now.month - 1) / 3).floor() + 1;
+          final orderQuarter = ((orderDate.month - 1) / 3).floor() + 1;
+          return orderDate.year == now.year && orderQuarter == currentQuarter;
+        default:
+          return true;
+      }
+    }).toList();
   }
 
   @override
@@ -228,6 +293,9 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
   }
 
   Widget _buildPhoneLayout() {
+    final filteredOrders = _getFilteredOrders();
+    final paidFilteredOrders = filteredOrders.where((o) => o.status == OrderStatus.paid).toList();
+
     return CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
@@ -244,7 +312,11 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: BIKpiGridWidget(orders: _orders, inventory: _stockItems),
+            child: BIKpiGridWidget(
+              orders: filteredOrders,
+              inventory: _stockItems,
+              selectedPeriod: _selectedPeriod,
+            ),
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 16)),
@@ -264,10 +336,9 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: BITopItemsChartWidget(
-              orders: _orders
-                  .where((o) => o.status == OrderStatus.paid)
-                  .toList(),
+              orders: paidFilteredOrders,
               stockItems: _stockItems,
+              selectedPeriod: _selectedPeriod,
             ),
           ),
         ),
@@ -276,9 +347,7 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: BIProfitableProductsWidget(
-              orders: _orders
-                  .where((o) => o.status == OrderStatus.paid)
-                  .toList(),
+              orders: paidFilteredOrders,
               stockItems: _stockItems,
             ),
           ),
@@ -288,9 +357,7 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: BIProfitBreakdownWidget(
-              orders: _orders
-                  .where((o) => o.status == OrderStatus.paid)
-                  .toList(),
+              orders: paidFilteredOrders,
               stockItems: _stockItems,
             ),
           ),
@@ -306,7 +373,7 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: BITopCustomerWidget(orders: _orders, customers: _customers),
+            child: BITopCustomerWidget(orders: filteredOrders, customers: _customers),
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 16)),
@@ -322,6 +389,9 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
   }
 
   Widget _buildTabletLayout() {
+    final filteredOrders = _getFilteredOrders();
+    final paidFilteredOrders = filteredOrders.where((o) => o.status == OrderStatus.paid).toList();
+
     return Row(
       children: [
         AppNavigationRail(
@@ -348,8 +418,9 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: BIKpiGridWidget(
                     isTablet: true,
-                    orders: _orders,
+                    orders: filteredOrders,
                     inventory: _stockItems,
+                    selectedPeriod: _selectedPeriod,
                   ),
                 ),
               ),
@@ -371,10 +442,9 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
                       const SizedBox(width: 16),
                       Expanded(
                         child: BITopItemsChartWidget(
-                          orders: _orders
-                              .where((o) => o.status == OrderStatus.paid)
-                              .toList(),
+                          orders: paidFilteredOrders,
                           stockItems: _stockItems,
+                          selectedPeriod: _selectedPeriod,
                         ),
                       ),
                     ],
@@ -390,9 +460,7 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
                     children: [
                       Expanded(
                         child: BIProfitableProductsWidget(
-                          orders: _orders
-                              .where((o) => o.status == OrderStatus.paid)
-                              .toList(),
+                          orders: paidFilteredOrders,
                           stockItems: _stockItems,
                         ),
                       ),
@@ -413,7 +481,7 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
                     children: [
                       Expanded(
                         child: BITopCustomerWidget(
-                          orders: _orders,
+                          orders: filteredOrders,
                           customers: _customers,
                         ),
                       ),
@@ -430,9 +498,7 @@ class _BIDashboardScreenState extends State<BIDashboardScreen> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: BIProfitBreakdownWidget(
-                    orders: _orders
-                        .where((o) => o.status == OrderStatus.paid)
-                        .toList(),
+                    orders: paidFilteredOrders,
                     stockItems: _stockItems,
                   ),
                 ),
